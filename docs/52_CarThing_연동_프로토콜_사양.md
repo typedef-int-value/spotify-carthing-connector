@@ -253,6 +253,8 @@ frame = int32_big_endian(payload.length) + MessagePack.encode(message)
 - 홈·상단 프리셋 화면의 shelf·presets 조회는 `com.spotify.superbird.graphql` 경로, 원시 버튼 이벤트와 구분
 - 2026-10-20 버튼별 실기 시험: 외부 미디어 재생 화면에서 프리셋 1~4번 짧은 입력에 제어 RPC 없음, 홈/뒤로 입력에는 `shelf` 조회 3회 수신
 - 현재 홈 조회 오류 응답 후 검은 화면 및 기기의 `query home failed` 보고 확인. 상세 조건과 원본은 [버튼 입력 관찰](CarThing_APK_분석_및_Windows_연결.md#프리셋홈-버튼-입력-관찰) 참조
+- `Play Spotify` 터치 입력: `com.spotify.superbird.set_active_app`의 `{"app":"spotify"}` 요청 후 `com.spotify.superbird.resume`의 `{}` 요청 수신
+- 현재 앱 전환 미지원 오류 및 재생 요청 오류 응답, 사용자 아이콘 깜빡임·화면 유지 확인. 상세 기록은 [터치 버튼 관찰](CarThing_APK_분석_및_Windows_연결.md#play-spotify-터치-버튼-관찰) 참조
 
 ## 7. 플랫폼 이식 구성
 

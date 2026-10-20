@@ -178,3 +178,19 @@ dotnet publish windows-probe\CarThingProbe.csproj -c Release -r win-x64 `
 - 홈 버튼 자체의 원시 입력 대신 홈 화면 콘텐츠 조회 요청 수신
 - 프리셋 결론의 적용 조건: 현재 재생 화면·현재 프리셋 상태의 짧은 입력, 다른 화면이나 프리셋 등록 후 동작과 구분
 - 원본 구간 및 시험 시각: [버튼 입력 기록](../analysis/button-input-check/)
+
+## Play Spotify 터치 버튼 관찰
+
+- 조건: 2026-10-20 16:43~16:45 KST, 외부 미디어 재생 화면 상단의 `Play Spotify` 입력
+- 사용자 확인: 아이콘 깜빡임, 화면 변화 없음
+- 로그에서 아래 요청 순서 3회 확인
+
+| 순서 | 요청 | 인자 | 현재 응답 |
+|---|---|---|---|
+| 1 | `com.spotify.superbird.set_active_app` | `{"app":"spotify"}` | `wamp.error.no_such_procedure` |
+| 2 | `com.spotify.superbird.resume` | `{}` | `wamp.error.runtime_error` |
+
+- 요청 ID 쌍: `2066/2067`, `2076/2077`, `2090/2091`
+- 버튼 역할: Spotify 활성 앱 전환 요청 후 재생 재개 요청
+- 현재 브리지의 앱 전환 기능 미지원 확인, 이 응답만으로 순정 화면 전환 조건을 단정하지 않는 관찰 결과
+- 원본 요청·응답: [Play Spotify 입력 기록](../analysis/button-input-check/play-spotify.jsonl)
