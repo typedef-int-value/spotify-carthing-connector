@@ -157,3 +157,24 @@ dotnet publish windows-probe\CarThingProbe.csproj -c Release -r win-x64 `
 - 상단 4개 버튼의 기본 용도는 프리셋, 현재 기록은 원시 버튼 번호가 아닌 라이브러리 조회 요청
 - 위 실기 집계의 캡처: `analysis/captures/20261020-063744-415/`, 2026-10-20 15:53~15:54 KST 버튼 시험
 - [빌드](../analysis/control-build.log), [자동 시험](../analysis/control-self-test.log), [실행](../analysis/control-runtime-final.log), [실행 오류](../analysis/control-runtime-final-error.log)
+
+## 프리셋·홈 버튼 입력 관찰
+
+- 조건: 2026-10-20 15:59~16:02 KST, 현재 브리지의 외부 미디어 재생 화면, 버튼별 짧게 누르기
+- 버튼별 시험 시작 시각과 수신 구간 분리, 사용자 화면 확인 및 RFCOMM 로그 대조
+
+| 입력 | 화면 변화 | 수신 결과 |
+|---|---|---|
+| 프리셋 1번 1회 및 추가 4회 | 없음 | 해당 구간 새 메시지 0개 |
+| 프리셋 2번 1회 | 없음 | 야간 모드 진단 로그 1건, 버튼 제어 요청 없음 |
+| 프리셋 3번 1회 | 없음 | 해당 구간 새 메시지 0개 |
+| 프리셋 4번 1회 | 없음 | 야간 모드 진단 로그 1건, 버튼 제어 요청 없음 |
+| 홈/뒤로 1회 | 검은 화면 | `com.spotify.superbird.graphql`의 `shelf` 조회 3회 |
+
+- 홈 조회: `shelf(limit:14 overrides:[])`, 응답 요청 필드 `title`·`id`·`total`·`children{uri title subtitle image_id:imageId}`
+- 홈 조회 요청 ID `1474`, `1478`, `1486`에 `wamp.error.no_such_procedure` 응답
+- 기기 오류 보고의 `query home failed: Interapp error: wamp.error.no_such_procedure` 확인
+- 사용자 확인: 잠시 후 재생 화면 자동 복귀, 홈/뒤로 버튼 재입력 시 검은 화면 재발
+- 홈 버튼 자체의 원시 입력 대신 홈 화면 콘텐츠 조회 요청 수신
+- 프리셋 결론의 적용 조건: 현재 재생 화면·현재 프리셋 상태의 짧은 입력, 다른 화면이나 프리셋 등록 후 동작과 구분
+- 원본 구간 및 시험 시각: [버튼 입력 기록](../analysis/button-input-check/)

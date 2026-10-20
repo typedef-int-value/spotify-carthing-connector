@@ -251,6 +251,8 @@ frame = int32_big_endian(payload.length) + MessagePack.encode(message)
 - 볼륨 이벤트 payload: `{"volume": 0.4, "volume_steps": 51}`, 단계 수는 출력 장치 조회값
 - APK 근거: `p/j7i0.java`, `p/i7i0.java`, `p/a351.java`, `VolumeAppProtocol$SetVolume`, `VolumeAppProtocol$VolumeState`
 - 홈·상단 프리셋 화면의 shelf·presets 조회는 `com.spotify.superbird.graphql` 경로, 원시 버튼 이벤트와 구분
+- 2026-10-20 버튼별 실기 시험: 외부 미디어 재생 화면에서 프리셋 1~4번 짧은 입력에 제어 RPC 없음, 홈/뒤로 입력에는 `shelf` 조회 3회 수신
+- 현재 홈 조회 오류 응답 후 검은 화면 및 기기의 `query home failed` 보고 확인. 상세 조건과 원본은 [버튼 입력 관찰](CarThing_APK_분석_및_Windows_연결.md#프리셋홈-버튼-입력-관찰) 참조
 
 ## 7. 플랫폼 이식 구성
 
