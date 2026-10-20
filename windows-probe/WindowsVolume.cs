@@ -1,0 +1,48 @@
+using System.Text.Json.Nodes;
+using NAudio.CoreAudioApi;
+
+internal static class WindowsVolume
+{
+    internal static bool IsCommand(string uri) => uri is
+        "com.spotify.superbird.volume.volume_up" or
+        "com.spotify.superbird.volume.volume_down" or
+        "com.spotify.superbird.volume.set_volume";
+
+    internal static float ParseVolume(JsonObject arguments)
+    {
+        if (arguments["volume"] is not JsonValue value ||
+            !value.TryGetValue<double>(out double volume) ||
+            !double.IsFinite(volume) || volume < 0 || volume > 1)
+            throw new ArgumentException("volume must be a number between 0 and 1.");
+        return (float)volume;
+    }
+
+    public static bool Control(string uri, JsonObject arguments)
+    {
+        // Validate before opening an endpoint or changing any system volume.
+        float scalar = uri == "com.spotify.superbird.volume.set_volume" ? ParseVolume(arguments) : 0;
+        using var enumerator = new MMDeviceEnumerator();
+        using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        var volume = device.AudioEndpointVolume;
+        switch (uri)
+        {
+            case "com.spotify.superbird.volume.volume_up": volume.VolumeStepUp(); break;
+            case "com.spotify.superbird.volume.volume_down": volume.VolumeStepDown(); break;
+            case "com.spotify.superbird.volume.set_volume": volume.MasterVolumeLevelScalar = scalar; break;
+            default: return false;
+        }
+        Console.WriteLine($"Volume: {volume.MasterVolumeLevelScalar:P0}");
+        return true;
+    }
+
+    public static JsonObject Read()
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        return new JsonObject
+        {
+            ["volume"] = device.AudioEndpointVolume.MasterVolumeLevelScalar,
+            ["volume_steps"] = device.AudioEndpointVolume.StepInformation.StepCount
+        };
+    }
+}

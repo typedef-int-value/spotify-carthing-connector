@@ -10,18 +10,22 @@ internal sealed class MediaBridge
     private readonly Dictionary<int, string> subscriptions = new();
     private readonly Func<JsonArray, Task> send;
     private readonly Func<string, JsonObject?> getImage;
+    private readonly Func<string, JsonObject, Task<bool>> control;
     private int phase;
     private int nextSubscription;
     private int publication;
     private string authId = "";
     private string? lastMedia;
+    private string? lastVolume;
     private static JsonObject Empty() => new();
     private static JsonArray Array(params object?[] values) => JsonSerializer.SerializeToNode(values)!.AsArray();
 
-    internal MediaBridge(Func<JsonArray, Task> send, Func<string, JsonObject?>? getImage = null)
+    internal MediaBridge(Func<JsonArray, Task> send, Func<string, JsonObject?>? getImage = null,
+        Func<string, JsonObject, Task<bool>>? control = null)
     {
         this.send = send;
         this.getImage = getImage ?? (_ => null);
+        this.control = control ?? ((_, _) => Task.FromResult(false));
     }
 
     internal async Task HandleAsync(JsonArray message)
@@ -75,6 +79,7 @@ internal sealed class MediaBridge
                         ["is_in_forced_offline_mode"] = false, ["connection_type"] = "unknown"
                     }));
                 lastMedia = null;
+                lastVolume = null;
                 break;
             case 34 when phase == 2:
                 subscriptions.Remove(message[2]!.GetValue<int>());
@@ -83,6 +88,32 @@ internal sealed class MediaBridge
             case 48 when phase == 2:
                 string uri = message[3]!.GetValue<string>();
                 Console.WriteLine($"CALL: {uri}");
+                if (WindowsMedia.IsPlaybackCommand(uri) || WindowsVolume.IsCommand(uri))
+                {
+                    string? error = null;
+                    try
+                    {
+                        var arguments = message.Count > 5 ? message[5] as JsonObject : Empty();
+                        if (arguments == null) throw new ArgumentException("Expected keyword argument map.");
+                        if (!await control(uri, arguments)) error = "wamp.error.runtime_error";
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        error = "wamp.error.invalid_argument";
+                        Console.Error.WriteLine($"Control {uri}: {ex.Message}");
+                    }
+                    catch (Exception ex)
+                    {
+                        error = "wamp.error.runtime_error";
+                        Console.Error.WriteLine($"Control {uri}: {ex.Message}");
+                    }
+                    Console.WriteLine($"Control {uri}: {error ?? "accepted"}");
+                    if (error == null) await send(Array(50, message[1], Empty(), Empty()));
+                    else await send(Array(8, 48, message[1], Empty(), error));
+                    lastMedia = null;
+                    lastVolume = null;
+                    break;
+                }
                 JsonObject? result = uri switch
                 {
                     "com.spotify.get_image" => getImage(message.Count > 5 ? message[5]?["id"]?.GetValue<string>() ?? "" : ""),
@@ -121,6 +152,16 @@ internal sealed class MediaBridge
         foreach (var pair in subscriptions.Where(p => p.Value == "com.spotify.superbird.player_state"))
             await send(Array(36, pair.Key, ++publication, Empty(), new JsonArray(), state));
         lastMedia = serialized;
+    }
+
+    internal async Task PublishVolumeAsync(JsonObject state)
+    {
+        if (phase != 2) return;
+        string serialized = state.ToJsonString();
+        if (serialized == lastVolume) return;
+        foreach (var pair in subscriptions.Where(p => p.Value == "com.spotify.superbird.volume.volume_state"))
+            await send(Array(36, pair.Key, ++publication, Empty(), new JsonArray(), state));
+        lastVolume = serialized;
     }
 
     internal static byte[] Encode(JsonArray message)
@@ -169,7 +210,7 @@ internal sealed class MediaBridge
             await transmitted.WriteAsync(frame, cancellation);
             await transmitted.FlushAsync(cancellation);
             WriteLog(log, "TX", message.ToJsonString());
-        }, media.GetImage);
+        }, media.GetImage, media.ControlAsync);
         // One writer and one protocol state owner; no concurrent writes or subscription mutations.
         Task<JsonArray> receive = ReceiveAsync(input, raw, log, cancellation);
         try
@@ -185,6 +226,13 @@ internal sealed class MediaBridge
                 }
                 if (bridge.subscriptions.Values.Contains("com.spotify.superbird.player_state"))
                     await bridge.PublishAsync(await media.ReadAsync());
+                if (bridge.subscriptions.Values.Contains("com.spotify.superbird.volume.volume_state"))
+                {
+                    JsonObject? volume = null;
+                    try { volume = WindowsVolume.Read(); }
+                    catch (Exception ex) { Console.Error.WriteLine($"Volume state: {ex.Message}"); }
+                    if (volume != null) await bridge.PublishVolumeAsync(volume);
+                }
             }
         }
         finally
@@ -272,7 +320,65 @@ internal sealed class MediaBridge
             }
         }
         Console.WriteLine("PASS: image cache/RPC across 24 tracks with three thumbnail reads each.");
+        await ControlSelfTestAsync();
         Console.WriteLine("PASS: handshake, subscriptions, session state, RPC errors, unsubscribe, fragmented reads, invalid state, oversized/truncated frames.");
+    }
+
+    private static async Task ControlSelfTestAsync()
+    {
+        var frames = new List<JsonArray>();
+        int calls = 0;
+        bool accepted = true;
+        bool fail = false;
+        var bridge = new MediaBridge(m => { frames.Add(m); return Task.CompletedTask; }, control: (uri, args) =>
+        {
+            calls++;
+            if (uri.EndsWith(".set_volume")) WindowsVolume.ParseVolume(args);
+            if (fail) throw new IOException("Simulated endpoint loss.");
+            return Task.FromResult(accepted);
+        });
+        await bridge.HandleAsync(Array(1, "spotify", new { authid = "test", authmethods = new[] { "wampcra" } }));
+        await bridge.HandleAsync(Array(5, "test", Empty()));
+        string[] commands = ["resume", "pause", "skip_next", "skip_prev",
+            "volume.volume_up", "volume.volume_down", "volume.set_volume"];
+        foreach (string command in commands)
+        {
+            await bridge.HandleAsync(Array(48, 201, Empty(), "com.spotify.superbird." + command,
+                new JsonArray(), JsonNode.Parse("{\"volume\":0.4}")!));
+            if (frames[^1][0]!.GetValue<int>() != 50 || frames[^1][1]!.GetValue<int>() != 201)
+                throw new Exception($"Control result regression: {command}");
+        }
+        if (calls != commands.Length) throw new Exception("Control dispatched more than once.");
+        accepted = false;
+        await bridge.HandleAsync(Array(48, 202, Empty(), "com.spotify.superbird.pause", new JsonArray(), Empty()));
+        if (frames[^1][0]!.GetValue<int>() != 8 || frames[^1][2]!.GetValue<int>() != 202)
+            throw new Exception("Rejected control incorrectly acknowledged.");
+        accepted = true;
+        fail = true;
+        await bridge.HandleAsync(Array(48, 203, Empty(), "com.spotify.superbird.resume", new JsonArray(), Empty()));
+        if (frames[^1][4]!.GetValue<string>() != "wamp.error.runtime_error")
+            throw new Exception("Control exception did not become RPC error.");
+        fail = false;
+        foreach (string argument in new[] { "{}", "{\"volume\":-0.1}", "{\"volume\":1.1}", "{\"volume\":\"bad\"}" })
+        {
+            await bridge.HandleAsync(Array(48, 204, Empty(), "com.spotify.superbird.volume.set_volume",
+                new JsonArray(), JsonNode.Parse(argument)!));
+            if (frames[^1][4]!.GetValue<string>() != "wamp.error.invalid_argument")
+                throw new Exception("Invalid volume accepted.");
+        }
+        await bridge.HandleAsync(Array(32, 205, Empty(), "com.spotify.superbird.volume.volume_state"));
+        var volume = new JsonObject { ["volume"] = 0.4, ["volume_steps"] = 51 };
+        await bridge.PublishVolumeAsync(volume);
+        if (frames[^1][0]!.GetValue<int>() != 36 || !JsonNode.DeepEquals(frames[^1][5], volume))
+            throw new Exception("Volume state event missing.");
+        int before = frames.Count;
+        await bridge.PublishVolumeAsync(volume);
+        if (frames.Count != before) throw new Exception("Duplicate volume event.");
+        await bridge.HandleAsync(Array(34, 206, 1));
+        before = frames.Count;
+        await bridge.PublishVolumeAsync(new JsonObject { ["volume"] = 0.5 });
+        if (frames.Count != before) throw new Exception("Volume published after unsubscribe.");
+        Console.WriteLine("PASS: seven control routes, rejection, exception, volume validation, volume subscription.");
     }
 
     private sealed class FragmentedStream(byte[] bytes) : MemoryStream(bytes)

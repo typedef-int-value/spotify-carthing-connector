@@ -19,7 +19,7 @@ internal static class Program
         {
             if (args.Length == 0 || args is ["--help"])
             {
-                Console.WriteLine("CarThingProbe --list\nCarThingProbe --media\nCarThingProbe --self-test\nCarThingProbe --check-radio\nCarThingProbe --listen AA:BB:CC:DD:EE:FF [seconds: 1..3600]\nCarThingProbe --bridge AA:BB:CC:DD:EE:FF [seconds: 1..3600]");
+                Console.WriteLine("CarThingProbe --list\nCarThingProbe --media\nCarThingProbe --volume\nCarThingProbe --self-test\nCarThingProbe --check-radio\nCarThingProbe --listen AA:BB:CC:DD:EE:FF [seconds: 1..3600]\nCarThingProbe --bridge AA:BB:CC:DD:EE:FF [seconds: 1..3600]");
                 Console.WriteLine("Pair in Windows first. --listen captures only; --bridge sends current Windows media.");
                 Console.WriteLine("--bridge runs until Ctrl+C unless a duration is supplied.");
                 return 0;
@@ -33,6 +33,11 @@ internal static class Program
             if (args is ["--self-test"])
             {
                 await MediaBridge.SelfTestAsync();
+                return 0;
+            }
+            if (args is ["--volume"])
+            {
+                Console.WriteLine(WindowsVolume.Read().ToJsonString());
                 return 0;
             }
             if (args is ["--list"])

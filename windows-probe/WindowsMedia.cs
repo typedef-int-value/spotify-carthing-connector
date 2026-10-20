@@ -22,6 +22,26 @@ internal sealed class WindowsMedia
 
     public JsonObject? GetImage(string id) => images.Get(id);
 
+    internal static bool IsPlaybackCommand(string uri) => uri is
+        "com.spotify.superbird.resume" or "com.spotify.superbird.pause" or
+        "com.spotify.superbird.skip_next" or "com.spotify.superbird.skip_prev";
+
+    public async Task<bool> ControlAsync(string uri, JsonObject arguments)
+    {
+        if (WindowsVolume.IsCommand(uri)) return WindowsVolume.Control(uri, arguments);
+        var session = manager.GetCurrentSession();
+        if (session == null) return false;
+        var controls = session.GetPlaybackInfo().Controls;
+        return uri switch
+        {
+            "com.spotify.superbird.resume" => controls.IsPlayEnabled && await session.TryPlayAsync(),
+            "com.spotify.superbird.pause" => controls.IsPauseEnabled && await session.TryPauseAsync(),
+            "com.spotify.superbird.skip_next" => controls.IsNextEnabled && await session.TrySkipNextAsync(),
+            "com.spotify.superbird.skip_prev" => controls.IsPreviousEnabled && await session.TrySkipPreviousAsync(),
+            _ => false
+        };
+    }
+
     public async Task<JsonObject> ReadAsync()
     {
         var session = manager.GetCurrentSession();
@@ -91,11 +111,12 @@ internal sealed class WindowsMedia
             ["is_paused"] = !playing, ["is_paused_bool"] = !playing,
             ["playback_options"] = new JsonObject { ["repeat"] = 0, ["shuffle"] = false },
             ["playback_position"] = position, ["playback_speed"] = playing ? playback?.PlaybackRate ?? 1 : 0,
-            // Display-only bridge. Do not advertise controls that are not implemented.
+            // Advertise only implemented commands supported by the current Windows session.
             ["playback_restrictions"] = new JsonObject
             {
                 ["can_repeat_context"] = false, ["can_repeat_track"] = false, ["can_seek"] = false,
-                ["can_skip_next"] = false, ["can_skip_prev"] = false, ["can_toggle_shuffle"] = false
+                ["can_skip_next"] = playback?.Controls.IsNextEnabled ?? false,
+                ["can_skip_prev"] = playback?.Controls.IsPreviousEnabled ?? false, ["can_toggle_shuffle"] = false
             },
             ["track"] = new JsonObject
             {

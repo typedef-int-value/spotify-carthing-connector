@@ -10,7 +10,9 @@
 - 앱 표시 이름 조회를 통한 긴 Windows 앱 식별자 표시 수정
 - 수신 진단 로그의 로컬 저장 및 접수 응답
 - 로컬 브리지 연결 상태를 `com.spotify.session_state`로 전달, Spotify 클라우드 로그인과 구분
-- 표시 전용 구현, 재생 제어 가능 여부를 false로 전달
+- 재생·일시정지·다음·이전 곡 요청을 Windows 현재 미디어 세션에 전달
+- 다음·이전 곡 지원 여부를 현재 앱의 Windows 미디어 제어 정보에 맞춰 전달
+- 볼륨 RPC를 Windows 기본 멀티미디어 출력 장치의 볼륨 제어에 연결
 
 ## 시험 결과
 
@@ -76,6 +78,7 @@ Set-Location D:\git\Spotify
 |---|---|
 | `--list` | 페어링 장치 조회 |
 | `--media` | 현재 Windows 미디어 정보 JSON 출력 |
+| `--volume` | 기본 출력 장치의 볼륨·단계 수 JSON 출력 |
 | `--bridge <MAC> [초]` | 연결 응답 및 미디어 전달, 시간 지정 시 1~3600초 |
 | `--listen <MAC> [초]` | 수신 전용 진단, 기본 120초 |
 | `--check-radio` | 3초간 서비스 광고 확인 |
@@ -129,3 +132,28 @@ dotnet publish windows-probe\CarThingProbe.csproj -c Release -r win-x64 `
 ```
 
 - 환경: .NET SDK 10.0.401, Windows 10 build 19041 이상 대상, MessagePack 3.1.12
+- 볼륨 제어 의존성: NAudio.Wasapi 2.2.1
+
+## 버튼 제어 구현
+
+- 2026-10-20 제어 요청 처리 및 배포 실행 파일 갱신
+- 재생 제어 대상: Windows 현재 미디어 세션, 볼륨 대상: Windows 기본 멀티미디어 출력 장치
+- Windows 요청 수락 시 RESULT, 제어 거절·장치 오류 시 RPC 오류 응답
+
+| 항목 | 확인 결과 |
+|---|---|
+| 초기 버튼 시험 | `com.spotify.superbird.pause` 수신 |
+| 홈·프리셋 관련 화면 | `com.spotify.superbird.graphql`의 shelf·presets 조회 기록 |
+| 제어 경로 시험 | 재생·일시정지·다음·이전·볼륨 증가·감소·설정 7개 경로 통과 |
+| 오류 시험 | Windows 요청 거절·예외·잘못된 볼륨 값 처리 통과 |
+| 볼륨 이벤트 시험 | 구독·중복 억제·구독 해제 검사 통과 |
+| 기존 회귀 시험 | 이미지 24곡·72회 및 프로토콜 시험 통과 |
+| 증분 빌드 | 경고 0개·오류 0개 |
+| 기본 출력 장치 조회 | 볼륨 단계 수 51, `--volume` 조회 성공 |
+| 사용자 실기 확인 | 이전 곡·다음 곡·일시정지·볼륨 증가·감소 정상 동작 |
+| 제어 요청 수락 기록 | 재생 1회·일시정지 1회·다음 곡 1회·이전 곡 2회·볼륨 증가 45회·감소 53회 |
+| 일시정지 연속 요청 | 2회 중 1회 수락, 1회 Windows 반환값 false에 따른 RPC 오류 |
+
+- 상단 4개 버튼의 기본 용도는 프리셋, 현재 기록은 원시 버튼 번호가 아닌 라이브러리 조회 요청
+- 위 실기 집계의 캡처: `analysis/captures/20261020-063744-415/`, 2026-10-20 15:53~15:54 KST 버튼 시험
+- [빌드](../analysis/control-build.log), [자동 시험](../analysis/control-self-test.log), [실행](../analysis/control-runtime-final.log), [실행 오류](../analysis/control-runtime-final-error.log)
