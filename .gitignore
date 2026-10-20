@@ -1,0 +1,19 @@
+# Local third-party inputs and analysis tools
+/artifacts/
+/.tools/
+
+# Decompiled sources, captures, logs, and generated review files
+/analysis/
+/_workspace/
+
+# Published binaries and build outputs
+/dist/
+**/bin/
+**/obj/
+/cmake-build-*/
+
+# Local IDE state
+/.vs/
+/.idea/
+*.user
+*.suo
