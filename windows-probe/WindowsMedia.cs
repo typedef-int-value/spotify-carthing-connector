@@ -8,7 +8,7 @@ using Windows.Storage.Streams;
 internal sealed class WindowsMedia
 {
     private readonly GlobalSystemMediaTransportControlsSessionManager manager;
-    private readonly Dictionary<string, JsonObject> images = new();
+    private readonly MediaImageCache images = new();
     private string thumbnailKey = "";
     private string thumbnailId = "";
     private DateTime nextThumbnailRead;
@@ -20,7 +20,7 @@ internal sealed class WindowsMedia
     public static async Task<WindowsMedia> CreateAsync() =>
         new(await GlobalSystemMediaTransportControlsSessionManager.RequestAsync());
 
-    public JsonObject? GetImage(string id) => images.TryGetValue(id, out var image) ? image.DeepClone().AsObject() : null;
+    public JsonObject? GetImage(string id) => images.Get(id);
 
     public async Task<JsonObject> ReadAsync()
     {
@@ -68,13 +68,12 @@ internal sealed class WindowsMedia
                         byte[] bytes = new byte[destination.Size];
                         reader.ReadBytes(bytes);
                         thumbnailId = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-                        images[thumbnailId] = new JsonObject
+                        images.Store(thumbnailId, new JsonObject
                         {
                             ["image_data"] = Convert.ToBase64String(bytes),
                             ["width"] = encoder.BitmapTransform.ScaledWidth,
                             ["height"] = encoder.BitmapTransform.ScaledHeight
-                        };
-                        while (images.Count > 8) images.Remove(images.Keys.First());
+                        });
                     }
                 }
             }
@@ -108,5 +107,20 @@ internal sealed class WindowsMedia
                 ["saved"] = false, ["uid"] = "fake", ["uri"] = "spotify:track:fake"
             }
         };
+    }
+}
+
+internal sealed class MediaImageCache
+{
+    private readonly OrderedDictionary<string, JsonObject> images = new();
+
+    public JsonObject? Get(string id) =>
+        images.TryGetValue(id, out var image) ? image.DeepClone().AsObject() : null;
+
+    public void Store(string id, JsonObject image)
+    {
+        images[id] = image;
+        // Preserve insertion order when removed slots are reused by later tracks.
+        while (images.Count > 8) images.RemoveAt(0);
     }
 }

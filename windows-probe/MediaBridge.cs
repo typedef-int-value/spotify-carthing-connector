@@ -248,6 +248,30 @@ internal sealed class MediaBridge
         try { await ReceiveAsync(truncated, raw, log, CancellationToken.None); }
         catch (EndOfStreamException) { rejected = true; }
         if (!rejected) throw new Exception("Accepted truncated frame.");
+        var cache = new MediaImageCache();
+        var imageBridge = new MediaBridge(m => { frames.Add(m); return Task.CompletedTask; }, cache.Get);
+        await imageBridge.HandleAsync(Array(1, "spotify", new { authid = "test", authmethods = new[] { "wampcra" } }));
+        await imageBridge.HandleAsync(Array(5, "test-signature", Empty()));
+        for (int track = 0; track < 24; track++)
+        {
+            // Repeat reads of the same thumbnail as ReadAsync does every five seconds.
+            for (int read = 0; read < 3; read++)
+            {
+                string imageId = $"image-{track}";
+                cache.Store(imageId, new JsonObject { ["image_data"] = $"payload-{track}", ["width"] = 248, ["height"] = 248 });
+                await imageBridge.HandleAsync(Array(48, 100 + track, Empty(), "com.spotify.get_image",
+                    new JsonArray(), new JsonObject { ["id"] = imageId }));
+                if (frames[^1][0]!.GetValue<int>() != 50 ||
+                    frames[^1][3]?["image_data"]?.GetValue<string>() != $"payload-{track}")
+                    throw new Exception($"Image cache/RPC regression at track {track + 1}, read {read + 1}.");
+                for (int previous = Math.Max(0, track - 7); previous <= track; previous++)
+                    if (cache.Get($"image-{previous}") == null)
+                        throw new Exception($"Recent image {previous} evicted at track {track}.");
+                if (track >= 8 && cache.Get($"image-{track - 8}") != null)
+                    throw new Exception("Image cache retained more than eight images.");
+            }
+        }
+        Console.WriteLine("PASS: image cache/RPC across 24 tracks with three thumbnail reads each.");
         Console.WriteLine("PASS: handshake, subscriptions, session state, RPC errors, unsubscribe, fragmented reads, invalid state, oversized/truncated frames.");
     }
 

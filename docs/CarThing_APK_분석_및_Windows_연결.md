@@ -38,6 +38,27 @@
 - 지원하지 않는 OTA·원격 등록·원격 설정 요청에 오류 응답 3개 기록
 - 실기기 표시 확인 조건: Windows 공통 API 경유 Spotify PC 앱의 정보 전달
 
+## 연속 재생 중 커버 이미지 누락 수정
+
+- 2026-10-20 장시간 재생 중 이미지 요청 실패 확인
+- 원인: `Dictionary`에서 삭제된 자리를 새 항목이 재사용하면서, 첫 항목 제거 시 현재 이미지 삭제
+- 수정: 삽입 순서를 유지하는 `OrderedDictionary`로 최근 이미지 8개 보관
+- 동일 이미지의 주기적 재수집 및 `com.spotify.get_image` 응답 경로를 포함한 회귀 시험 추가
+
+| 확인 항목 | 결과 |
+|---|---|
+| 기존 실기 로그 | `Safe Passage`부터 이미지 요청에 `wamp.error.no_such_procedure` 응답 |
+| 기존 코드 재현 | 10번째 이미지의 첫 조회 실패 |
+| 수정 후 회귀 시험 | 24곡 × 곡당 3회 조회, 72회 정상 응답 |
+| 캐시 보관 검사 | 최근 8개 유지·이전 이미지 제거 통과 |
+| 기존 프로토콜 시험 | 전체 통과 |
+| 배포 실행 파일 | 수정본 반영 및 브리지 재연결 |
+| 재연결 후 실기 확인 | 다음 곡 전환 후 사용자 커버 표시 확인, 248×248 pixels·Base64 15,708 characters 응답 |
+
+- [수정 전 재현 로그](../analysis/image-cache-before.log), [수정 후 회귀 시험](../analysis/image-cache-after.log)
+- [수정본 배포 로그](../analysis/image-cache-publish.log), [재연결 로그](../analysis/image-cache-runtime-fixed.log)
+- [수정 후 실기 캡처](../analysis/captures/20261020-061349-223/)
+
 ## 실행
 
 ```powershell
