@@ -22,17 +22,33 @@ internal sealed class WindowsMedia
 
     public JsonObject? GetImage(string id) => images.Get(id);
 
-    internal static bool IsPlaybackCommand(string uri) => uri is
+    internal static string NormalizePlaybackCommand(string uri) => uri switch
+    {
+        "com.spotify.skip_next" => "com.spotify.superbird.skip_next",
+        "com.spotify.skip_previous" => "com.spotify.superbird.skip_prev",
+        _ => uri
+    };
+
+    internal static string PlaybackSpeedCommand(JsonObject arguments)
+    {
+        if (arguments["playback_speed"] is not JsonValue value ||
+            !value.TryGetValue<int>(out int speed) || speed is not (0 or 1))
+            throw new ArgumentException("playback_speed must be 0 (pause) or 1 (play).");
+        return speed == 0 ? "com.spotify.superbird.pause" : "com.spotify.superbird.resume";
+    }
+
+    internal static bool IsPlaybackCommand(string uri) => uri == "com.spotify.set_playback_speed" || NormalizePlaybackCommand(uri) is
         "com.spotify.superbird.resume" or "com.spotify.superbird.pause" or
         "com.spotify.superbird.skip_next" or "com.spotify.superbird.skip_prev";
 
     public async Task<bool> ControlAsync(string uri, JsonObject arguments)
     {
         if (WindowsVolume.IsCommand(uri)) return WindowsVolume.Control(uri, arguments);
+        if (uri == "com.spotify.set_playback_speed") uri = PlaybackSpeedCommand(arguments);
         var session = manager.GetCurrentSession();
         if (session == null) return false;
         var controls = session.GetPlaybackInfo().Controls;
-        return uri switch
+        return NormalizePlaybackCommand(uri) switch
         {
             "com.spotify.superbird.resume" => controls.IsPlayEnabled && await session.TryPlayAsync(),
             "com.spotify.superbird.pause" => controls.IsPauseEnabled && await session.TryPauseAsync(),

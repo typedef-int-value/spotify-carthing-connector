@@ -291,3 +291,31 @@ frame = int32_big_endian(payload.length) + MessagePack.encode(message)
 - 자동 시험 진입점: `CarThingProbe.exe --self-test`
 - 패킷 원본 및 실기 시험 경로: [분석·검증 문서](CarThing_APK_분석_및_Windows_연결.md)
 - 원본 캡처는 로컬 보관 자료이며, 본 문서의 예제는 장치·사용자 식별값을 제외한 재작성 예제
+
+## 순정 재생 화면 버튼 실기 관찰 — 2026-10-27
+
+- `currently_active_application=null` 전송 후 순정 재생 화면 전환 사용자 확인
+- 빈 프리셋 목록 조건에서 1~4번 짧은 입력의 버튼 제어 요청 없음
+- 1번·4번 긴 입력: `com.spotify.superbird.presets.set_preset`, `presets` 배열의 `slot_index` 각각 1·4, `source=tactile`, `version=1`
+- 홈/뒤로 짧은 입력: `com.spotify.superbird.get_home`, 인자 `{"limit":14,"limit_overrides":{}}`
+- 홈 요청 미지원 오류 응답 후 검은 화면 및 `fetch home failed` 오류 기록
+- 상세 조건·원본: [Spotify 화면 전환 시험](55_Spotify_화면_전환_시험.md)
+
+### 채워진 프리셋 실행 확인
+
+- `presets.set_preset`의 `result` 배열로 4개 항목 반환 후 기기의 목록 표시 사용자 확인
+- 물리 프리셋 2번 짧은 입력: `com.spotify.play_item`, `feature_identifier=car-thing-preset`, `id=spotify:playlist:carthing-test-2`
+- 버튼 번호 자체 대신 프리셋에 등록한 URI로 실행 대상 식별
+- 기기 진단 로그: `preset_two_button`, `interaction_type=key_stroke`
+- 실행 RPC는 현재 미지원 오류 응답, Windows 동작 연결 전 요청 수신 단계
+
+### 순정 재생 화면 커버 표시 확인
+
+- 순정 화면의 커버 경로: `com.spotify.play_queue` EVENT → `current.image_uri` → `get_image` 또는 `get_thumbnail_image` → `image_data`
+- 큐 구조: `previous` 배열, `current` 객체, `next` 배열; 현재 Windows 곡만 current에 제공
+- 이미지 ID는 JPEG 캐시 키 사용, data URL 직접 전송 방식 제거
+- 2026-10-27 큐·이미지 RPC 연결 후 앨범 커버 표시 사용자 확인
+- 순정 일시정지·재생: `com.spotify.set_playback_speed`의 `playback_speed=0/1`, Windows 제어 실기 확인
+- 순정 이전·다음곡: `com.spotify.skip_previous`, `com.spotify.skip_next`, Windows 제어 실기 확인
+
+- 다음곡 전환 시 순정 재생 화면의 앨범 커버 갱신 사용자 확인

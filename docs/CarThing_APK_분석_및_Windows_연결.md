@@ -63,6 +63,9 @@
 
 ## 실행
 
+- 현재 기본 실행: `dist/carthing-connector/carthing-connector.exe` 더블클릭
+- [트레이 앱 사용·배포](54_carthing-connector_트레이_앱.md), 아래 명령은 진단용 직접 실행 방식
+
 ```powershell
 Set-Location D:\git\Spotify
 .\Start-CarThing.ps1
@@ -128,7 +131,7 @@ Set-Location D:\git\Spotify
 
 ```powershell
 dotnet publish windows-probe\CarThingProbe.csproj -c Release -r win-x64 `
-  --self-contained true -p:PublishSingleFile=true -o dist\CarThingProbe
+  --self-contained true -p:PublishSingleFile=true -o dist\carthing-connector
 ```
 
 - 환경: .NET SDK 10.0.401, Windows 10 build 19041 이상 대상, MessagePack 3.1.12

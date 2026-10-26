@@ -3,7 +3,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$executable = Join-Path $PSScriptRoot "dist\CarThingProbe\CarThingProbe.exe"
+$executable = Join-Path $PSScriptRoot "dist\carthing-connector\carthing-connector.exe"
 if (-not (Test-Path -LiteralPath $executable)) {
     throw "Missing executable: $executable"
 }

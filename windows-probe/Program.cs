@@ -7,19 +7,58 @@ using Windows.Storage.Streams;
 // RFCOMM capture and Windows media bridge.
 internal static class Program
 {
+    internal static bool SpotifyUiExperiment { get; private set; }
     private static readonly (string Name, Guid Id)[] Services =
     [
         ("length-prefixed", new("E3CCCCCD-33B7-457D-A03C-AA1C54BF617F")),
         ("escaped-crc", new("7FBE865E-518B-462A-B31B-90ACF6A472FC"))
     ];
 
-    private static async Task<int> Main(string[] args)
+    [STAThread]
+    private static int Main(string[] args)
+    {
+        SpotifyUiExperiment = args is ["--spotify-ui-experiment"];
+        if (SpotifyUiExperiment) args = [];
+        bool ownsBridge = args.Length == 0 || args[0] is "--bridge" or "--listen" or "--check-radio";
+        using var instance = new Mutex(false, "Local\\carthing-connector");
+        bool acquired = false;
+        if (ownsBridge)
+        {
+            try { acquired = instance.WaitOne(0); }
+            catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired) return 0;
+        }
+        try
+        {
+            if (args is ["--tray-self-test"])
+            {
+                ApplicationConfiguration.Initialize();
+                ConnectorTray.ShutdownSelfTest();
+                return 0;
+            }
+            if (args.Length != 0) return RunAsync(args).GetAwaiter().GetResult();
+            ApplicationConfiguration.Initialize();
+            using var tray = new ConnectorTray();
+            Application.Run(tray);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            if (args.Length == 0) MessageBox.Show(ex.Message, "carthing-connector", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            else Console.Error.WriteLine(ex);
+            return 1;
+        }
+        finally { if (acquired) instance.ReleaseMutex(); }
+    }
+
+    internal static async Task<int> RunAsync(string[] args, CancellationToken cancellation = default,
+        string? captureRoot = null, Action<string>? status = null)
     {
         try
         {
-            if (args.Length == 0 || args is ["--help"])
+            if (args is ["--help"])
             {
-                Console.WriteLine("CarThingProbe --list\nCarThingProbe --media\nCarThingProbe --volume\nCarThingProbe --self-test\nCarThingProbe --check-radio\nCarThingProbe --listen AA:BB:CC:DD:EE:FF [seconds: 1..3600]\nCarThingProbe --bridge AA:BB:CC:DD:EE:FF [seconds: 1..3600]");
+                Console.WriteLine("carthing-connector --list\ncarthing-connector --media\ncarthing-connector --volume\ncarthing-connector --self-test\ncarthing-connector --check-radio\ncarthing-connector --listen AA:BB:CC:DD:EE:FF [seconds: 1..3600]\ncarthing-connector --bridge AA:BB:CC:DD:EE:FF [seconds: 1..3600]");
                 Console.WriteLine("Pair in Windows first. --listen captures only; --bridge sends current Windows media.");
                 Console.WriteLine("--bridge runs until Ctrl+C unless a duration is supplied.");
                 return 0;
@@ -66,13 +105,16 @@ internal static class Program
             if (!checkRadio && (target == null || !target.DeviceInformation.Pairing.IsPaired))
                 throw new InvalidOperationException("Target must be paired in Windows Bluetooth settings first.");
 
-            using var stop = seconds == 0 ? new CancellationTokenSource() : new CancellationTokenSource(TimeSpan.FromSeconds(seconds));
-            Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+            using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            if (seconds != 0) stop.CancelAfter(TimeSpan.FromSeconds(seconds));
+            ConsoleCancelEventHandler cancel = (_, e) => { e.Cancel = true; stop.Cancel(); };
+            Console.CancelKeyPress += cancel;
             var listeners = new List<StreamSocketListener>();
             var providers = new List<RfcommServiceProvider>();
             var tasks = new List<Task>();
             var taskLock = new object();
-            var output = Path.GetFullPath(Path.Combine("analysis", "captures", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff")));
+            int activeConnection = 0;
+            var output = Path.GetFullPath(Path.Combine(captureRoot ?? Path.Combine("analysis", "captures"), DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff")));
             Directory.CreateDirectory(output);
             try
             {
@@ -87,10 +129,16 @@ internal static class Program
                     {
                         lock (taskLock)
                         {
-                            if (stop.IsCancellationRequested) e.Socket.Dispose();
-                            else tasks.Add(Capture(e.Socket, service.Name, address, output, stop.Token, bridge));
+                            tasks.RemoveAll(t => t.IsCompleted);
+                            if (stop.IsCancellationRequested || (bridge && Interlocked.CompareExchange(ref activeConnection, 1, 0) != 0)) e.Socket.Dispose();
+                            else tasks.Add(AcceptAsync(e.Socket, service.Name));
                         }
                     };
+                    async Task AcceptAsync(StreamSocket socket, string transport)
+                    {
+                        try { await Capture(socket, transport, address, output, stop.Token, bridge, status); }
+                        finally { if (bridge) Interlocked.Exchange(ref activeConnection, 0); }
+                    }
                     await listener.BindServiceNameAsync(provider.ServiceId.AsString(),
                         SocketProtectionLevel.BluetoothEncryptionWithAuthentication);
                     using var name = new DataWriter();
@@ -103,12 +151,14 @@ internal static class Program
                 }
                 Console.WriteLine($"Target: {target?.Name ?? "radio check only"} ({address:X12}); duration {(seconds == 0 ? "until Ctrl+C" : $"{seconds}s")}; output {output}");
                 Console.WriteLine(checkRadio ? "Testing local service advertisement only." : "Select/reconnect this PC from Car Thing. Ctrl+C stops capture.");
+                status?.Invoke("연결 대기 · " + (target?.Name ?? "Bluetooth"));
                 try { await Task.Delay(Timeout.Infinite, stop.Token); }
                 catch (OperationCanceledException) { }
             }
             finally
             {
                 stop.Cancel();
+                Console.CancelKeyPress -= cancel;
                 foreach (var provider in providers) provider.StopAdvertising();
                 foreach (var listener in listeners) listener.Dispose();
                 Task[] pending;
@@ -121,12 +171,13 @@ internal static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine($"{ex.GetType().Name}: {ex.Message} (0x{ex.HResult:X8})");
+            status?.Invoke("오류 · " + ex.Message);
             return 1;
         }
     }
 
     private static async Task Capture(StreamSocket socket, string transport, ulong expected,
-        string output, CancellationToken cancellation, bool bridge)
+        string output, CancellationToken cancellation, bool bridge, Action<string>? status = null)
     {
         using (socket)
         {
@@ -139,6 +190,7 @@ internal static class Program
                     return;
                 }
                 using var cancelRegistration = cancellation.Register(socket.Dispose);
+                status?.Invoke("Bluetooth 연결됨 · " + peer.Name);
                 var stem = Path.Combine(output, $"{transport}-{Guid.NewGuid():N}");
                 if (bridge)
                 {
@@ -167,6 +219,10 @@ internal static class Program
             {
                 if (!cancellation.IsCancellationRequested)
                     Console.Error.WriteLine($"Capture {transport}: {ex.Message}");
+            }
+            finally
+            {
+                if (!cancellation.IsCancellationRequested) status?.Invoke("연결 대기 · 재연결 가능");
             }
         }
     }

@@ -17,15 +17,27 @@ internal sealed class MediaBridge
     private string authId = "";
     private string? lastMedia;
     private string? lastVolume;
+    private string? lastQueue;
+    private readonly bool spotifyUiExperiment;
+    private JsonArray experimentPresets = new();
     private static JsonObject Empty() => new();
     private static JsonArray Array(params object?[] values) => JsonSerializer.SerializeToNode(values)!.AsArray();
 
     internal MediaBridge(Func<JsonArray, Task> send, Func<string, JsonObject?>? getImage = null,
-        Func<string, JsonObject, Task<bool>>? control = null)
+        Func<string, JsonObject, Task<bool>>? control = null, bool spotifyUiExperiment = false)
     {
         this.send = send;
         this.getImage = getImage ?? (_ => null);
         this.control = control ?? ((_, _) => Task.FromResult(false));
+        this.spotifyUiExperiment = spotifyUiExperiment;
+        if (spotifyUiExperiment)
+            for (int slot = 1; slot <= 4; slot++)
+                experimentPresets.Add(new JsonObject
+                {
+                    ["slot_index"] = slot, ["context_uri"] = $"spotify:playlist:carthing-test-{slot}",
+                    ["name"] = $"PC Preset {slot}", ["description"] = "Local protocol test",
+                    ["image_url"] = ""
+                });
     }
 
     internal async Task HandleAsync(JsonArray message)
@@ -80,6 +92,7 @@ internal sealed class MediaBridge
                     }));
                 lastMedia = null;
                 lastVolume = null;
+                lastQueue = null;
                 break;
             case 34 when phase == 2:
                 subscriptions.Remove(message[2]!.GetValue<int>());
@@ -88,6 +101,52 @@ internal sealed class MediaBridge
             case 48 when phase == 2:
                 string uri = message[3]!.GetValue<string>();
                 Console.WriteLine($"CALL: {uri}");
+                if (spotifyUiExperiment && uri is "com.spotify.superbird.presets.get_presets" or "com.spotify.superbird.presets.set_preset")
+                {
+                    try
+                    {
+                        if (uri.EndsWith("set_preset", StringComparison.Ordinal))
+                            UpdateExperimentPresets(message.Count > 5 ? message[5] as JsonObject : null);
+                        await send(Array(50, message[1], Empty(), new JsonObject { ["result"] = experimentPresets.DeepClone() }));
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        Console.WriteLine($"EXPERIMENT preset: {ex.Message}");
+                        await send(Array(8, 48, message[1], Empty(), "wamp.error.invalid_argument"));
+                    }
+                    break;
+                }
+                if (spotifyUiExperiment && uri == "com.spotify.superbird.graphql")
+                {
+                    string payload = message.Count > 5 ? message[5]?["payload"]?.GetValue<string>() ?? "" : "";
+                    Console.WriteLine($"EXPERIMENT GraphQL: {payload}");
+                    // Support only observed home/preset queries. Preserve unknown queries as errors.
+                    string compact = string.Concat(payload.Where(c => !char.IsWhiteSpace(c)));
+                    if (compact == "query{shelf(limit:14overrides:[]){...onShelf{items{titleidtotalchildren{urititlesubtitleimage_id:imageId}}}...onShelfError{message}}}")
+                        await send(Array(50, message[1], Empty(), new JsonObject
+                        {
+                            ["data"] = new JsonObject { ["shelf"] = new JsonObject { ["items"] = new JsonArray() } }
+                        }));
+                    else if (System.Text.RegularExpressions.Regex.IsMatch(compact,
+                        "^query\\{presets\\(serial:\"[A-Za-z0-9]+\"\\)\\{\\.\\.\\.onPresets\\{presets\\{context_uri:contextUrinameslot_index:slotIndexdescriptionimage_url:imageUrl\\}\\}\\.\\.\\.onPresetsError\\{message\\}\\}\\}$"))
+                        await send(Array(50, message[1], Empty(), new JsonObject
+                        {
+                            ["data"] = new JsonObject { ["presets"] = new JsonObject { ["presets"] = experimentPresets.DeepClone() } }
+                        }));
+                    else await send(Array(8, 48, message[1], Empty(), "wamp.error.no_such_procedure"));
+                    break;
+                }
+                if (spotifyUiExperiment && uri == "com.spotify.superbird.set_active_app")
+                {
+                    string? app = message.Count > 5 ? message[5]?["app"]?.GetValue<string>() : null;
+                    if (app == "spotify")
+                    {
+                        lastMedia = null;
+                        await send(Array(50, message[1], Empty(), Empty()));
+                    }
+                    else await send(Array(8, 48, message[1], Empty(), "wamp.error.invalid_argument"));
+                    break;
+                }
                 if (WindowsMedia.IsPlaybackCommand(uri) || WindowsVolume.IsCommand(uri))
                 {
                     string? error = null;
@@ -116,7 +175,7 @@ internal sealed class MediaBridge
                 }
                 JsonObject? result = uri switch
                 {
-                    "com.spotify.get_image" => getImage(message.Count > 5 ? message[5]?["id"]?.GetValue<string>() ?? "" : ""),
+                    "com.spotify.get_image" or "com.spotify.get_thumbnail_image" => getImage(message.Count > 5 ? message[5]?["id"]?.GetValue<string>() ?? "" : ""),
                     "com.spotify.superbird.permissions" => new JsonObject { ["can_use_superbird"] = true },
                     // Diagnostic requests are persisted in the local RX log before acknowledgment.
                     "com.spotify.superbird.pitstop.log" or "com.spotify.superbird.crashes.report" or
@@ -144,9 +203,56 @@ internal sealed class MediaBridge
         }
     }
 
+    private void UpdateExperimentPresets(JsonObject? arguments)
+    {
+        if (arguments?["presets"] is not JsonArray { Count: > 0 } updates)
+            throw new ArgumentException("Expected nonempty presets array.");
+        var next = experimentPresets.DeepClone().AsArray();
+        var slots = new HashSet<int>();
+        foreach (var update in updates)
+        {
+            if (update is not JsonObject item || item["slot_index"] is not JsonValue slotValue ||
+                !slotValue.TryGetValue<int>(out int slot) || slot is < 1 or > 4 || !slots.Add(slot) ||
+                item["context_uri"] is not JsonValue uriValue || !uriValue.TryGetValue<string>(out string? context) ||
+                string.IsNullOrWhiteSpace(context))
+                throw new ArgumentException("Expected unique slot_index 1..4 and nonempty context_uri.");
+            next[slot - 1]!["context_uri"] = context;
+        }
+        // Session-local test data only; commit after the entire request validates.
+        experimentPresets = next;
+    }
+
     internal async Task PublishAsync(JsonObject state)
     {
         if (phase != 2) return;
+        if (spotifyUiExperiment)
+        {
+            state = state.DeepClone().AsObject();
+            // APK cpn.F (Spotify) uses null; cpn.E (external media) supplies ActiveApp.
+            state["currently_active_application"] = null;
+            if (state["track"] is JsonObject track)
+            {
+                string identity = $"{track["name"]}\n{track["artist"]?["name"]}\n{track["album"]?["name"]}";
+                string key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
+                track["uid"] = key;
+                track["uri"] = "spotify:track:" + key[..22]; // Synthetic local identity, not a Spotify catalog ID.
+            }
+            JsonObject? current = state["track"] is JsonObject item ? new JsonObject
+            {
+                ["uid"] = item["uid"]?.DeepClone(), ["uri"] = item["uri"]?.DeepClone(),
+                ["name"] = item["name"]?.DeepClone(), ["image_uri"] = item["image_id"]?.DeepClone(),
+                ["artist_name"] = item["artist"]?["name"]?.DeepClone(),
+                ["artists"] = item["artists"]?.DeepClone() ?? new JsonArray(), ["provider"] = "context"
+            } : null;
+            var queue = new JsonObject { ["previous"] = new JsonArray(), ["current"] = current, ["next"] = new JsonArray() };
+            string serializedQueue = queue.ToJsonString();
+            if (serializedQueue != lastQueue)
+            {
+                foreach (var pair in subscriptions.Where(p => p.Value == "com.spotify.play_queue"))
+                    await send(Array(36, pair.Key, ++publication, Empty(), new JsonArray(), queue));
+                lastQueue = serializedQueue;
+            }
+        }
         string serialized = state.ToJsonString();
         if (serialized == lastMedia) return;
         foreach (var pair in subscriptions.Where(p => p.Value == "com.spotify.superbird.player_state"))
@@ -210,7 +316,7 @@ internal sealed class MediaBridge
             await transmitted.WriteAsync(frame, cancellation);
             await transmitted.FlushAsync(cancellation);
             WriteLog(log, "TX", message.ToJsonString());
-        }, media.GetImage, media.ControlAsync);
+        }, media.GetImage, media.ControlAsync, Program.SpotifyUiExperiment);
         // One writer and one protocol state owner; no concurrent writes or subscription mutations.
         Task<JsonArray> receive = ReceiveAsync(input, raw, log, cancellation);
         try
@@ -252,8 +358,114 @@ internal sealed class MediaBridge
         }
     }
 
+    private static async Task SpotifyUiSelfTestAsync()
+    {
+        foreach (bool enabled in new[] { false, true })
+        {
+            var sent = new List<JsonArray>();
+            var peer = new MediaBridge(m => { sent.Add(m); return Task.CompletedTask; },
+                getImage: id => id == "cover-test" ? new JsonObject { ["image_data"] = "YWJj" } : null,
+                spotifyUiExperiment: enabled);
+            await peer.HandleAsync(Array(1, "spotify", new { authid = "test", authmethods = new[] { "wampcra" } }));
+            await peer.HandleAsync(Array(5, "signature", Empty()));
+            await peer.HandleAsync(Array(32, 1, Empty(), "com.spotify.superbird.player_state"));
+            var state = new JsonObject { ["currently_active_application"] = new JsonObject { ["id"] = "windows.test" } };
+            await peer.PublishAsync(state);
+            if ((enabled ? sent[^1][5]?["currently_active_application"] != null :
+                    sent[^1][5]?["currently_active_application"]?["id"]?.GetValue<string>() != "windows.test") ||
+                state["currently_active_application"]?["id"]?.GetValue<string>() != "windows.test")
+                throw new Exception("Experiment state leaked into normal mode or mutated source.");
+            state["track"] = new JsonObject { ["image_id"] = "cover-test" };
+            await peer.PublishAsync(state);
+            string expectedImage = "cover-test";
+            if (sent[^1][5]?["track"]?["image_id"]?.GetValue<string>() != expectedImage ||
+                state["track"]?["image_id"]?.GetValue<string>() != "cover-test")
+                throw new Exception("Cover URL conversion or normal-mode preservation failed.");
+            var coverFrame = Encode(sent[^1]);
+            var coverRoundtrip = JsonNode.Parse(MessagePackSerializer.ConvertToJson(coverFrame.AsMemory(4)));
+            if (coverRoundtrip?[5]?["track"]?["image_id"]?.GetValue<string>() != expectedImage)
+                throw new Exception("Cover URL MessagePack roundtrip failed.");
+            if (enabled)
+            {
+                string? firstUid = sent[^1][5]?["track"]?["uid"]?.GetValue<string>();
+                state["track"]!["name"] = "Next title";
+                await peer.PublishAsync(state);
+                if (sent[^1][5]?["track"]?["uid"]?.GetValue<string>() == firstUid || state["track"]?["uid"] != null)
+                    throw new Exception("Native track identity did not change or mutated source.");
+            }
+            state["track"]!["image_id"] = "missing";
+            await peer.PublishAsync(state);
+            if (sent[^1][5]?["track"]?["image_id"]?.GetValue<string>() != "missing")
+                throw new Exception("Missing cover did not clear image URL.");
+            await peer.HandleAsync(Array(32, 20, Empty(), "com.spotify.play_queue"));
+            int queueSubscription = sent[^1][2]!.GetValue<int>();
+            state["track"]!["image_id"] = "cover-test";
+            int queueStart = sent.Count;
+            await peer.PublishAsync(state);
+            var queueEvents = sent.Skip(queueStart).Where(m => m[0]?.GetValue<int>() == 36 && m[1]?.GetValue<int>() == queueSubscription).ToList();
+            if (queueEvents.Count != (enabled ? 1 : 0)) throw new Exception("Queue mode isolation failed.");
+            if (enabled)
+            {
+                string? requestedImage = queueEvents[0][5]?["current"]?["image_uri"]?.GetValue<string>();
+                if (requestedImage != "cover-test") throw new Exception("Native artwork queue reference missing.");
+                foreach (string imageRpc in new[] { "get_image", "get_thumbnail_image" })
+                {
+                    await peer.HandleAsync(Array(48, 21, Empty(), "com.spotify." + imageRpc, new JsonArray(), new { id = requestedImage }));
+                    if (sent[^1][3]?["image_data"]?.GetValue<string>() != "YWJj")
+                        throw new Exception("Native queue image lookup failed.");
+                }
+                int noChangeStart = sent.Count;
+                await peer.PublishAsync(state);
+                if (sent.Count != noChangeStart) throw new Exception("Repeated unchanged queue.");
+                state["track"]!["image_id"] = "updated-cover";
+                await peer.PublishAsync(state);
+                if (!sent.Skip(noChangeStart).Any(m => m[0]?.GetValue<int>() == 36 && m[1]?.GetValue<int>() == queueSubscription &&
+                    m[5]?["current"]?["image_uri"]?.GetValue<string>() == "updated-cover"))
+                    throw new Exception("Queue cover refresh missing.");
+            }
+            await peer.HandleAsync(Array(48, 2, Empty(), "com.spotify.superbird.graphql", new JsonArray(), new
+            {
+                payload = " query{shelf(limit:14 overrides:[]){...on Shelf{items{title id total children{uri title subtitle image_id:imageId}}}...on ShelfError{message}}}"
+            }));
+            if (sent[^1][0]?.GetValue<int>() != (enabled ? 50 : 8) ||
+                (enabled && sent[^1][3]?["data"]?["shelf"]?["items"] is not JsonArray { Count: 0 }))
+                throw new Exception("Home query response regression.");
+            await peer.HandleAsync(Array(48, 3, Empty(), "com.spotify.superbird.graphql", new JsonArray(), new { payload = "mutation{unknown}" }));
+            if (sent[^1][0]?.GetValue<int>() != 8) throw new Exception("Unknown GraphQL request accepted.");
+            await peer.HandleAsync(Array(48, 5, Empty(), "com.spotify.superbird.graphql", new JsonArray(), new
+            {
+                payload = " query{presets(serial:\"8559RQ82Q61S\"){... on Presets{presets{context_uri:contextUri name slot_index:slotIndex description image_url:imageUrl}}... on PresetsError{message}}}"
+            }));
+            if (sent[^1][0]?.GetValue<int>() != (enabled ? 50 : 8) ||
+                (enabled && sent[^1][3]?["data"]?["presets"]?["presets"] is not JsonArray { Count: 4 }))
+                throw new Exception("Presets query response regression.");
+            await peer.HandleAsync(Array(48, 4, Empty(), "com.spotify.superbird.set_active_app", new JsonArray(), new { app = "spotify" }));
+            if (sent[^1][0]?.GetValue<int>() != (enabled ? 50 : 8)) throw new Exception("Active app mode regression.");
+            await peer.HandleAsync(Array(48, 6, Empty(), "com.spotify.superbird.presets.get_presets", new JsonArray(), Empty()));
+            if (sent[^1][0]?.GetValue<int>() != (enabled ? 50 : 8) ||
+                (enabled && sent[^1][3]?["result"] is not JsonArray { Count: 4 }))
+                throw new Exception("Preset RPC mode isolation regression.");
+            await peer.HandleAsync(Array(48, 7, Empty(), "com.spotify.superbird.presets.set_preset", new JsonArray(),
+                new { presets = new[] { new { slot_index = 4, context_uri = "spotify:context:test-save" } } }));
+            if (sent[^1][0]?.GetValue<int>() != (enabled ? 50 : 8) ||
+                (enabled && sent[^1][3]?["result"]?[3]?["context_uri"]?.GetValue<string>() != "spotify:context:test-save"))
+                throw new Exception("Preset save response regression.");
+            if (enabled)
+            {
+                await peer.HandleAsync(Array(48, 8, Empty(), "com.spotify.superbird.presets.set_preset", new JsonArray(),
+                    new { presets = new[] { new { slot_index = 1, context_uri = "changed" }, new { slot_index = 5, context_uri = "invalid" } } }));
+                if (sent[^1][0]?.GetValue<int>() != 8) throw new Exception("Invalid preset slot accepted.");
+                await peer.HandleAsync(Array(48, 9, Empty(), "com.spotify.superbird.presets.get_presets", new JsonArray(), Empty()));
+                if (sent[^1][3]?["result"]?[0]?["context_uri"]?.GetValue<string>() != "spotify:playlist:carthing-test-1")
+                    throw new Exception("Invalid preset batch changed existing data.");
+            }
+        }
+        Console.WriteLine("PASS: Spotify UI opt-in isolation, source preservation, home response, unknown query rejection, active app.");
+    }
+
     public static async Task SelfTestAsync()
     {
+        await SpotifyUiSelfTestAsync();
         var frames = new List<JsonArray>();
         var bridge = new MediaBridge(m => { frames.Add(m); return Task.CompletedTask; });
         await bridge.HandleAsync(Array(1, "spotify", new { authid = "test", authmethods = new[] { "wampcra" } }));
@@ -333,6 +545,7 @@ internal sealed class MediaBridge
         var bridge = new MediaBridge(m => { frames.Add(m); return Task.CompletedTask; }, control: (uri, args) =>
         {
             calls++;
+            if (uri == "com.spotify.set_playback_speed") WindowsMedia.PlaybackSpeedCommand(args);
             if (uri.EndsWith(".set_volume")) WindowsVolume.ParseVolume(args);
             if (fail) throw new IOException("Simulated endpoint loss.");
             return Task.FromResult(accepted);
@@ -349,6 +562,30 @@ internal sealed class MediaBridge
                 throw new Exception($"Control result regression: {command}");
         }
         if (calls != commands.Length) throw new Exception("Control dispatched more than once.");
+        foreach (var (native, target) in new[] { ("com.spotify.skip_next", "com.spotify.superbird.skip_next"),
+                     ("com.spotify.skip_previous", "com.spotify.superbird.skip_prev") })
+        {
+            if (WindowsMedia.NormalizePlaybackCommand(native) != target)
+                throw new Exception("Native control mapping failed.");
+            int previousCalls = calls;
+            await bridge.HandleAsync(Array(48, 207, Empty(), native, new JsonArray(), Empty()));
+            if (calls != previousCalls + 1 || frames[^1][0]?.GetValue<int>() != 50)
+                throw new Exception("Native control dispatch failed.");
+        }
+        foreach (int speed in new[] { 0, 1 })
+        {
+            var arguments = new JsonObject { ["playback_speed"] = speed };
+            if (WindowsMedia.PlaybackSpeedCommand(arguments) != (speed == 0 ? "com.spotify.superbird.pause" : "com.spotify.superbird.resume"))
+                throw new Exception("Playback speed mapping failed.");
+            await bridge.HandleAsync(Array(48, 208, Empty(), "com.spotify.set_playback_speed", new JsonArray(), arguments));
+            if (frames[^1][0]?.GetValue<int>() != 50) throw new Exception("Playback speed dispatch failed.");
+        }
+        foreach (string badSpeed in new[] { "{}", "{\"playback_speed\":2}", "{\"playback_speed\":\"0\"}" })
+        {
+            await bridge.HandleAsync(Array(48, 209, Empty(), "com.spotify.set_playback_speed", new JsonArray(), JsonNode.Parse(badSpeed)));
+            if (frames[^1][0]?.GetValue<int>() != 8 || frames[^1][4]?.GetValue<string>() != "wamp.error.invalid_argument")
+                throw new Exception("Invalid playback speed accepted.");
+        }
         accepted = false;
         await bridge.HandleAsync(Array(48, 202, Empty(), "com.spotify.superbird.pause", new JsonArray(), Empty()));
         if (frames[^1][0]!.GetValue<int>() != 8 || frames[^1][2]!.GetValue<int>() != 202)
