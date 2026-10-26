@@ -165,3 +165,33 @@
 - 커버 누락 수정: `player_state`만 전송하던 상태에서 `play_queue.current.image_uri` 및 이미지 조회 응답 연결
 
 - 다음곡 전환 시 앨범 커버가 새 곡에 맞게 갱신되는 동작 사용자 확인
+
+## Windows 셔플 연동 준비
+
+- `set_shuffle`·`superbird.set_shuffle`의 Boolean 인자와 `toggle_shuffle`의 현재 상태 반전 처리
+- Windows `TryChangeShuffleActiveAsync` 연결, 실패 시 RPC 오류 응답
+- `IsShuffleEnabled` 및 `IsShuffleActive` 상태 확인 시 버튼 활성화, 실제 상태를 `playback_options.shuffle`로 전송
+- Spotify PC 앱의 현재 Windows 미디어 조회: 셔플 제어 가능, 셔플 꺼짐
+- 셔플 3개 요청 경로·Boolean 검증·현재 상태 부재·제어 거절 및 기존 회귀 시험 통과
+- 원본: `analysis/shuffle-media.json`, `analysis/shuffle-self-test.log`, `analysis/shuffle-publish.log`
+
+## 셔플 첫 실기 결과
+
+- Car Thing에서 셔플 입력 시 점멸 후 꺼짐 사용자 보고
+- 수신: `com.spotify.set_shuffle`, `{"shuffle":true}`
+- Windows 변경 요청 반환: 성공, WAMP RESULT 응답
+- 요청 후 약 27초간 전송 상태: `shuffle=false`, `can_toggle_shuffle=true` 유지
+- Windows 요청 수락과 실제 셔플 상태 변경을 구분하여 기록
+- 원본: `analysis/spotify-ui-button-check/shuffle-enable-disable.jsonl`
+
+- PC 앱에서 직접 변경한 셔플 상태의 Car Thing 화면 반영 사용자 확인
+- 원본: `analysis/spotify-ui-button-check/shuffle-manual-pc-toggle.jsonl`
+
+## 셔플 재시험 결과
+
+- Car Thing 조작의 Spotify PC 앱 반영 사용자 확인
+- `set_shuffle(true)` 수신 후 약 1.01초에 Windows 셔플 상태 true 전송
+- `set_shuffle(false)` 수신 후 약 1.01초에 Windows 셔플 상태 false 전송
+- PC 직접 변경의 기기 표시 갱신 및 기기 요청의 PC 상태 변경 양방향 확인
+- 첫 요청의 미반영 현상은 기록 유지, 재시험에서 켜기·끄기 정상 반영 확인
+- 원본: `analysis/spotify-ui-button-check/shuffle-carthing-disable-after-pc-enable.jsonl`

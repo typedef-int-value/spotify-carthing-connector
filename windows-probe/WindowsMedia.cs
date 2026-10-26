@@ -38,8 +38,18 @@ internal sealed class WindowsMedia
     }
 
     internal static bool IsPlaybackCommand(string uri) => uri == "com.spotify.set_playback_speed" || NormalizePlaybackCommand(uri) is
+        "com.spotify.set_shuffle" or "com.spotify.superbird.set_shuffle" or "com.spotify.toggle_shuffle" or
         "com.spotify.superbird.resume" or "com.spotify.superbird.pause" or
         "com.spotify.superbird.skip_next" or "com.spotify.superbird.skip_prev";
+
+    internal static bool ShuffleTarget(string uri, JsonObject arguments, bool? current)
+    {
+        if (uri == "com.spotify.toggle_shuffle")
+            return current.HasValue ? !current.Value : throw new InvalidOperationException("Shuffle state unavailable.");
+        if (arguments["shuffle"] is not JsonValue value || !value.TryGetValue<bool>(out bool requested))
+            throw new ArgumentException("shuffle must be a Boolean.");
+        return requested;
+    }
 
     public async Task<bool> ControlAsync(string uri, JsonObject arguments)
     {
@@ -47,7 +57,13 @@ internal sealed class WindowsMedia
         if (uri == "com.spotify.set_playback_speed") uri = PlaybackSpeedCommand(arguments);
         var session = manager.GetCurrentSession();
         if (session == null) return false;
-        var controls = session.GetPlaybackInfo().Controls;
+        var playback = session.GetPlaybackInfo();
+        var controls = playback.Controls;
+        if (uri is "com.spotify.set_shuffle" or "com.spotify.superbird.set_shuffle" or "com.spotify.toggle_shuffle")
+        {
+            bool target = ShuffleTarget(uri, arguments, playback.IsShuffleActive);
+            return controls.IsShuffleEnabled && await session.TryChangeShuffleActiveAsync(target);
+        }
         return NormalizePlaybackCommand(uri) switch
         {
             "com.spotify.superbird.resume" => controls.IsPlayEnabled && await session.TryPlayAsync(),
@@ -125,14 +141,15 @@ internal sealed class WindowsMedia
             ["currently_active_application"] = new JsonObject { ["id"] = app, ["name"] = appName },
             ["context_uri"] = "spotify:context:fake", ["context_title"] = album,
             ["is_paused"] = !playing, ["is_paused_bool"] = !playing,
-            ["playback_options"] = new JsonObject { ["repeat"] = 0, ["shuffle"] = false },
+            ["playback_options"] = new JsonObject { ["repeat"] = 0, ["shuffle"] = playback?.IsShuffleActive ?? false },
             ["playback_position"] = position, ["playback_speed"] = playing ? playback?.PlaybackRate ?? 1 : 0,
             // Advertise only implemented commands supported by the current Windows session.
             ["playback_restrictions"] = new JsonObject
             {
                 ["can_repeat_context"] = false, ["can_repeat_track"] = false, ["can_seek"] = false,
                 ["can_skip_next"] = playback?.Controls.IsNextEnabled ?? false,
-                ["can_skip_prev"] = playback?.Controls.IsPreviousEnabled ?? false, ["can_toggle_shuffle"] = false
+                ["can_skip_prev"] = playback?.Controls.IsPreviousEnabled ?? false,
+                ["can_toggle_shuffle"] = playback?.Controls.IsShuffleEnabled == true && playback.IsShuffleActive.HasValue
             },
             ["track"] = new JsonObject
             {

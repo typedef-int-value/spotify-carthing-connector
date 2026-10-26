@@ -319,3 +319,12 @@ frame = int32_big_endian(payload.length) + MessagePack.encode(message)
 - 순정 이전·다음곡: `com.spotify.skip_previous`, `com.spotify.skip_next`, Windows 제어 실기 확인
 
 - 다음곡 전환 시 순정 재생 화면의 앨범 커버 갱신 사용자 확인
+
+### 셔플 제어 및 상태 동기화
+
+- `com.spotify.set_shuffle`·`com.spotify.superbird.set_shuffle`: Boolean `shuffle` 인자
+- `com.spotify.toggle_shuffle`: 현재 Windows 셔플 상태 반전, 상태 부재 시 오류
+- Windows `TryChangeShuffleActiveAsync`로 제어, 실제 `IsShuffleActive`를 플레이어 상태에 반영
+- `IsShuffleEnabled` 및 상태 조회 가능 조건에서 `can_toggle_shuffle=true` 전송
+- 2026-10-27 Spotify PC 앱에서 직접 바꾼 셔플 상태의 기기 반영 사용자 확인
+- Car Thing의 켜기·끄기 요청 후 각각 약 1.01초에 실제 상태 변경 전송, PC 반영 사용자 확인

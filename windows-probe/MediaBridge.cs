@@ -546,6 +546,8 @@ internal sealed class MediaBridge
         {
             calls++;
             if (uri == "com.spotify.set_playback_speed") WindowsMedia.PlaybackSpeedCommand(args);
+            if (uri is "com.spotify.set_shuffle" or "com.spotify.superbird.set_shuffle" or "com.spotify.toggle_shuffle")
+                WindowsMedia.ShuffleTarget(uri, args, false);
             if (uri.EndsWith(".set_volume")) WindowsVolume.ParseVolume(args);
             if (fail) throw new IOException("Simulated endpoint loss.");
             return Task.FromResult(accepted);
@@ -586,7 +588,34 @@ internal sealed class MediaBridge
             if (frames[^1][0]?.GetValue<int>() != 8 || frames[^1][4]?.GetValue<string>() != "wamp.error.invalid_argument")
                 throw new Exception("Invalid playback speed accepted.");
         }
+        foreach (string shuffleRpc in new[] { "com.spotify.set_shuffle", "com.spotify.superbird.set_shuffle", "com.spotify.toggle_shuffle" })
+        {
+            foreach (bool current in new[] { false, true })
+            {
+                var args = new JsonObject { ["shuffle"] = current };
+                bool expected = shuffleRpc == "com.spotify.toggle_shuffle" ? !current : current;
+                if (WindowsMedia.ShuffleTarget(shuffleRpc, args, current) != expected)
+                    throw new Exception("Shuffle target mapping failed.");
+                int countBefore = calls;
+                await bridge.HandleAsync(Array(48, 210, Empty(), shuffleRpc, new JsonArray(), args));
+                if (calls != countBefore + 1 || frames[^1][0]?.GetValue<int>() != 50)
+                    throw new Exception("Shuffle control dispatch failed.");
+            }
+        }
+        foreach (string invalidShuffle in new[] { "{}", "{\"shuffle\":1}", "{\"shuffle\":\"true\"}" })
+        {
+            await bridge.HandleAsync(Array(48, 211, Empty(), "com.spotify.set_shuffle", new JsonArray(), JsonNode.Parse(invalidShuffle)));
+            if (frames[^1][0]?.GetValue<int>() != 8 || frames[^1][4]?.GetValue<string>() != "wamp.error.invalid_argument")
+                throw new Exception("Invalid shuffle argument accepted.");
+        }
+        bool unknownShuffleRejected = false;
+        try { WindowsMedia.ShuffleTarget("com.spotify.toggle_shuffle", Empty(), null); }
+        catch (InvalidOperationException) { unknownShuffleRejected = true; }
+        if (!unknownShuffleRejected) throw new Exception("Unknown shuffle state toggled.");
         accepted = false;
+        await bridge.HandleAsync(Array(48, 212, Empty(), "com.spotify.set_shuffle", new JsonArray(), new { shuffle = true }));
+        if (frames[^1][4]?.GetValue<string>() != "wamp.error.runtime_error")
+            throw new Exception("Rejected shuffle control acknowledged.");
         await bridge.HandleAsync(Array(48, 202, Empty(), "com.spotify.superbird.pause", new JsonArray(), Empty()));
         if (frames[^1][0]!.GetValue<int>() != 8 || frames[^1][2]!.GetValue<int>() != 202)
             throw new Exception("Rejected control incorrectly acknowledged.");
