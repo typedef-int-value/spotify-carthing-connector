@@ -1,3 +1,4 @@
+using CarThing.Core;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Rfcomm;
 using Windows.Devices.Enumeration;
@@ -7,7 +8,7 @@ using Windows.Storage.Streams;
 // RFCOMM capture and Windows media bridge.
 internal static class Program
 {
-    internal static bool SpotifyUiExperiment { get; private set; }
+    internal static bool SpotifyUiExperiment { get; set; }
     private static readonly (string Name, Guid Id)[] Services =
     [
         ("length-prefixed", new("E3CCCCCD-33B7-457D-A03C-AA1C54BF617F")),
@@ -38,7 +39,7 @@ internal static class Program
             }
             if (args.Length != 0) return RunAsync(args).GetAwaiter().GetResult();
             ApplicationConfiguration.Initialize();
-            using var tray = new ConnectorTray();
+            using var tray = new ConnectorTray(spotifyMode: SpotifyUiExperiment ? true : null);
             Application.Run(tray);
             return 0;
         }
@@ -194,7 +195,11 @@ internal static class Program
                 var stem = Path.Combine(output, $"{transport}-{Guid.NewGuid():N}");
                 if (bridge)
                 {
-                    await MediaBridge.RunAsync(socket, stem, cancellation);
+                    using var input = socket.InputStream.AsStreamForRead();
+                    using var outgoing = socket.OutputStream.AsStreamForWrite();
+                    var media = await WindowsMedia.CreateAsync();
+                    await MediaBridge.RunAsync(input, outgoing, media, stem, SpotifyUiExperiment,
+                        socket.Dispose, cancellation);
                     return;
                 }
                 await using var raw = File.Create(stem + ".bin");

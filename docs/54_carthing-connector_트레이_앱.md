@@ -10,7 +10,7 @@
 |---|---|
 | UI | WinForms `NotifyIcon`·`ApplicationContext` |
 | 중복 실행 | 같은 Windows 세션의 명명된 Mutex, 추가 실행 즉시 종료 |
-| 트레이 메뉴 | 연결 상태·장치 선택·연결 다시 시작·로그 폴더 열기·종료 |
+| 트레이 메뉴 | 연결 상태·장치 선택·화면 모드·연결 다시 시작·로그 폴더 열기·종료 |
 | 연결 상태 | 준비 중·연결 대기·Bluetooth 연결됨·오류 |
 | 설정 | `%LocalAppData%\carthing-connector\settings.json` |
 | 로그 | `%LocalAppData%\carthing-connector\logs\` |
@@ -73,4 +73,21 @@ dotnet publish windows-probe/CarThingProbe.csproj -c Release -r win-x64 --self-c
 - 설정·로그는 EXE 위치와 무관하게 현재 사용자 데이터 폴더에 저장
 - 다른 PC에서는 Windows Bluetooth 페어링 후 앱에서 장치 선택
 - `--self-test`, `--media`, `--volume`, `--list`, `--bridge` 등 기존 진단 인자 유지
-- 스크립트 진입점 `Start-CarThing.ps1`은 새 실행 파일 경로로 갱신, 일반 실행은 EXE 사용
+- 실행 스크립트 `Start-CarThing.ps1` 제거, EXE 직접 실행으로 통일
+
+## 화면 모드 선택
+
+- 트레이의 `화면 모드 → 외부 미디어 / Spotify` 선택 및 현재 모드 체크 표시
+- 모드 변경 시 기존 연결 종료 후 재연결, 종료 시간 초과 시 모드 변경 중단
+- `settings.json`의 `SpotifyMode`에 선택값 저장, 다음 실행에서 복원
+- 기존 장치 주소만 있는 설정은 외부 미디어 모드로 해석
+- 두 모드 모두 Windows 미디어 세션의 곡 정보·커버·제어 사용
+- 기존 `--spotify-ui-experiment` 인자는 해당 실행의 Spotify 모드 지정용으로 유지
+| 자동 시험 | 결과 |
+|---|---|
+| 두 모드 전환·기존 연결 취소 순서 | 통과 |
+| 모드 설정 저장·역직렬화 및 기존 설정 호환 | 통과 |
+| 작업 중 종료·연결 무응답 시 종료 | 8 ms / 3,007 ms |
+| 프로토콜·이미지·재생·볼륨·셔플 회귀 시험 | 종료 코드 0 |
+
+- 빌드·시험 로그: `analysis/tray-modes-publish.log`, `analysis/tray-modes-tray-test.log`, `analysis/tray-modes-test.log`

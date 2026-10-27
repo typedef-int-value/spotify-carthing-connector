@@ -12,7 +12,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="MessagePack" Version="3.1.12" />
+    <ProjectReference Include="../carthing-core/CarThing.Core.csproj" />
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
   </ItemGroup>
 </Project>

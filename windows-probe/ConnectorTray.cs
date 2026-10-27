@@ -13,6 +13,11 @@ internal sealed class ConnectorTray : ApplicationContext
     private readonly ToolStripMenuItem statusItem = new("시작 중") { Enabled = false };
     private readonly ToolStripMenuItem deviceItem = new("장치 선택…");
     private readonly ToolStripMenuItem restartItem = new("연결 다시 시작");
+    private readonly ToolStripMenuItem modeItem = new("화면 모드");
+    private readonly ToolStripMenuItem externalModeItem = new("외부 미디어");
+    private readonly ToolStripMenuItem spotifyModeItem = new("Spotify");
+    private readonly bool? requestedSpotifyMode;
+    private readonly string settingsPath;
     private readonly ToolStripMenuItem exitItem = new("종료");
     private readonly TextWriter originalOutput = Console.Out;
     private readonly TextWriter originalError = Console.Error;
@@ -26,15 +31,16 @@ internal sealed class ConnectorTray : ApplicationContext
     private bool closing;
     private bool initialized;
 
-    public ConnectorTray(bool initialize = true)
+    public ConnectorTray(bool initialize = true, bool? spotifyMode = null, string? settingsPath = null)
     {
+        requestedSpotifyMode = spotifyMode;
+        this.settingsPath = settingsPath ?? Path.Combine(DataDirectory, "settings.json");
         Directory.CreateDirectory(DataDirectory);
         Directory.CreateDirectory(Path.Combine(DataDirectory, "logs"));
         log = new StreamWriter(Path.Combine(DataDirectory, "logs", $"app-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}.log")) { AutoFlush = true };
         var writer = TextWriter.Synchronized(log);
         Console.SetOut(writer);
         Console.SetError(writer);
-        if (Program.SpotifyUiExperiment) Console.WriteLine("EXPERIMENT: Spotify UI; Windows media source; empty home shelf.");
         _ = dispatcher.Handle;
         icon = new NotifyIcon
         {
@@ -44,12 +50,13 @@ internal sealed class ConnectorTray : ApplicationContext
             Visible = true
         };
         menu.Items.Add(new ToolStripMenuItem("carthing-connector") { Enabled = false });
-        if (Program.SpotifyUiExperiment)
-            menu.Items.Add(new ToolStripMenuItem("시험 모드 · Spotify 화면") { Enabled = false });
         menu.Items.Add(statusItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(deviceItem);
         menu.Items.Add(restartItem);
+        modeItem.DropDownItems.AddRange([externalModeItem, spotifyModeItem]);
+        menu.Items.Add(modeItem);
+        UpdateModeMenu();
         menu.Items.Add("로그 폴더 열기", null, (_, _) =>
         {
             try { Process.Start(new ProcessStartInfo(Path.Combine(DataDirectory, "logs")) { UseShellExecute = true }); }
@@ -59,6 +66,8 @@ internal sealed class ConnectorTray : ApplicationContext
         menu.Items.Add(exitItem);
         deviceItem.Click += async (_, _) => await SelectDeviceAsync();
         restartItem.Click += async (_, _) => await RestartAsync();
+        externalModeItem.Click += async (_, _) => await ChangeModeAsync(false);
+        spotifyModeItem.Click += async (_, _) => await ChangeModeAsync(true);
         exitItem.Click += async (_, _) => await CloseAsync();
         icon.DoubleClick += async (_, _) => await SelectDeviceAsync();
         if (initialize) Application.Idle += Initialize;
@@ -71,16 +80,18 @@ internal sealed class ConnectorTray : ApplicationContext
         Application.Idle -= Initialize;
         try
         {
-            string settings = Path.Combine(DataDirectory, "settings.json");
-            if (File.Exists(settings))
+            if (File.Exists(settingsPath))
             {
-                var saved = JsonSerializer.Deserialize<Settings>(File.ReadAllText(settings));
-                if (saved != null && saved.DeviceAddress.Length == 12 &&
+                var saved = JsonSerializer.Deserialize<Settings>(File.ReadAllText(settingsPath));
+                Program.SpotifyUiExperiment = saved?.SpotifyMode ?? false;
+                if (saved != null && saved.DeviceAddress?.Length == 12 &&
                     ulong.TryParse(saved.DeviceAddress, System.Globalization.NumberStyles.HexNumber, null, out _))
                     address = saved.DeviceAddress;
             }
         }
         catch (Exception ex) { Console.Error.WriteLine($"Settings: {ex.Message}"); }
+        if (requestedSpotifyMode.HasValue) Program.SpotifyUiExperiment = requestedSpotifyMode.Value;
+        UpdateModeMenu();
         if (address == null) await SelectDeviceAsync();
         else await RestartAsync();
     }
@@ -103,7 +114,7 @@ internal sealed class ConnectorTray : ApplicationContext
     private void SetBusy(bool value)
     {
         busy = value;
-        deviceItem.Enabled = restartItem.Enabled = !value && !closing;
+        deviceItem.Enabled = restartItem.Enabled = modeItem.Enabled = !value && !closing;
         exitItem.Enabled = !closing;
     }
 
@@ -159,9 +170,7 @@ internal sealed class ConnectorTray : ApplicationContext
             if (closing) return;
             if (result == DialogResult.OK && selectedChoice is DeviceChoice selected)
             {
-                string path = Path.Combine(DataDirectory, "settings.json");
-                File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(new Settings(selected.Address)));
-                File.Move(path + ".tmp", path, true);
+                SaveSettings(selected.Address, Program.SpotifyUiExperiment);
                 address = selected.Address;
                 await StopBridgeAsync();
                 if (!closing) StartBridge();
@@ -189,6 +198,7 @@ internal sealed class ConnectorTray : ApplicationContext
 
     private void StartBridge()
     {
+        Console.WriteLine($"Screen mode: {(Program.SpotifyUiExperiment ? "Spotify" : "External media")}");
         stop = new CancellationTokenSource();
         CancellationToken token = stop.Token;
         string target = address!;
@@ -254,10 +264,78 @@ internal sealed class ConnectorTray : ApplicationContext
         base.Dispose(disposing);
     }
 
-    private sealed record Settings(string DeviceAddress);
+    private void SaveSettings(string? deviceAddress, bool spotifyMode)
+    {
+        File.WriteAllText(settingsPath + ".tmp", JsonSerializer.Serialize(new Settings(deviceAddress, spotifyMode)));
+        File.Move(settingsPath + ".tmp", settingsPath, true);
+    }
+
+    private void UpdateModeMenu()
+    {
+        spotifyModeItem.Checked = Program.SpotifyUiExperiment;
+        externalModeItem.Checked = !Program.SpotifyUiExperiment;
+    }
+
+    private async Task ChangeModeAsync(bool spotifyMode)
+    {
+        if (busy || closing || spotifyMode == Program.SpotifyUiExperiment) return;
+        SetBusy(true);
+        try
+        {
+            // Do not change the mode while an old connection is still running.
+            await StopBridgeAsync();
+            if (closing) return;
+            SaveSettings(address, spotifyMode);
+            Program.SpotifyUiExperiment = spotifyMode;
+            UpdateModeMenu();
+            if (address != null) StartBridge();
+            else SetStatus("장치 선택 필요");
+        }
+        catch (Exception ex) { if (!closing) ShowError(ex); }
+        finally { if (!closing) SetBusy(false); }
+    }
+
+    private sealed record Settings(string? DeviceAddress, bool SpotifyMode = false);
 
     internal static void ShutdownSelfTest()
     {
+        string temporarySettings = Path.Combine(Path.GetTempPath(), $"carthing-settings-{Guid.NewGuid():N}.json");
+        bool originalMode = Program.SpotifyUiExperiment;
+        try
+        {
+            var legacy = JsonSerializer.Deserialize<Settings>("{\"DeviceAddress\":\"30E3D604D71F\"}");
+            if (legacy == null || legacy.SpotifyMode) throw new Exception("Legacy settings mode changed.");
+            Program.SpotifyUiExperiment = false;
+            using var tray = new ConnectorTray(initialize: false, settingsPath: temporarySettings);
+            foreach (bool mode in new[] { true, false })
+            {
+                tray.stop = new CancellationTokenSource();
+                tray.bridge = Task.FromResult(0);
+                bool cancelledBeforeChange = false;
+                using var modeRegistration = tray.stop.Token.Register(() =>
+                    cancelledBeforeChange = Program.SpotifyUiExperiment != mode);
+                Task change = tray.ChangeModeAsync(mode);
+                var deadline = Stopwatch.StartNew();
+                while (!change.IsCompleted && deadline.Elapsed < TimeSpan.FromSeconds(5))
+                {
+                    Application.DoEvents();
+                    Thread.Sleep(1);
+                }
+                if (!change.IsCompleted) throw new Exception("Mode switch timed out.");
+                change.GetAwaiter().GetResult();
+                var saved = JsonSerializer.Deserialize<Settings>(File.ReadAllText(temporarySettings));
+                if (!cancelledBeforeChange || saved?.SpotifyMode != mode ||
+                    tray.spotifyModeItem.Checked != mode || tray.externalModeItem.Checked == mode)
+                    throw new Exception("Mode switch or persistence failed.");
+            }
+            tray.originalOutput.WriteLine("PASS: both tray modes, connection cancellation, settings round trip and legacy settings.");
+        }
+        finally
+        {
+            Program.SpotifyUiExperiment = originalMode;
+            File.Delete(temporarySettings);
+            File.Delete(temporarySettings + ".tmp");
+        }
         foreach (bool stalled in new[] { false, true })
         {
             using var tray = new ConnectorTray(initialize: false);

@@ -1,3 +1,4 @@
+using CarThing.Core;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Windows.ApplicationModel;
@@ -5,7 +6,7 @@ using Windows.Graphics.Imaging;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 
-internal sealed class WindowsMedia
+internal sealed class WindowsMedia : IMediaSource
 {
     private readonly GlobalSystemMediaTransportControlsSessionManager manager;
     private readonly MediaImageCache images = new();
@@ -20,51 +21,24 @@ internal sealed class WindowsMedia
     public static async Task<WindowsMedia> CreateAsync() =>
         new(await GlobalSystemMediaTransportControlsSessionManager.RequestAsync());
 
+    public Task<JsonObject?> ReadVolumeAsync() => Task.FromResult<JsonObject?>(WindowsVolume.Read());
+
     public JsonObject? GetImage(string id) => images.Get(id);
-
-    internal static string NormalizePlaybackCommand(string uri) => uri switch
-    {
-        "com.spotify.skip_next" => "com.spotify.superbird.skip_next",
-        "com.spotify.skip_previous" => "com.spotify.superbird.skip_prev",
-        _ => uri
-    };
-
-    internal static string PlaybackSpeedCommand(JsonObject arguments)
-    {
-        if (arguments["playback_speed"] is not JsonValue value ||
-            !value.TryGetValue<int>(out int speed) || speed is not (0 or 1))
-            throw new ArgumentException("playback_speed must be 0 (pause) or 1 (play).");
-        return speed == 0 ? "com.spotify.superbird.pause" : "com.spotify.superbird.resume";
-    }
-
-    internal static bool IsPlaybackCommand(string uri) => uri == "com.spotify.set_playback_speed" || NormalizePlaybackCommand(uri) is
-        "com.spotify.set_shuffle" or "com.spotify.superbird.set_shuffle" or "com.spotify.toggle_shuffle" or
-        "com.spotify.superbird.resume" or "com.spotify.superbird.pause" or
-        "com.spotify.superbird.skip_next" or "com.spotify.superbird.skip_prev";
-
-    internal static bool ShuffleTarget(string uri, JsonObject arguments, bool? current)
-    {
-        if (uri == "com.spotify.toggle_shuffle")
-            return current.HasValue ? !current.Value : throw new InvalidOperationException("Shuffle state unavailable.");
-        if (arguments["shuffle"] is not JsonValue value || !value.TryGetValue<bool>(out bool requested))
-            throw new ArgumentException("shuffle must be a Boolean.");
-        return requested;
-    }
 
     public async Task<bool> ControlAsync(string uri, JsonObject arguments)
     {
-        if (WindowsVolume.IsCommand(uri)) return WindowsVolume.Control(uri, arguments);
-        if (uri == "com.spotify.set_playback_speed") uri = PlaybackSpeedCommand(arguments);
+        if (MediaCommands.IsVolumeCommand(uri)) return WindowsVolume.Control(uri, arguments);
+        if (uri == "com.spotify.set_playback_speed") uri = MediaCommands.PlaybackSpeedCommand(arguments);
         var session = manager.GetCurrentSession();
         if (session == null) return false;
         var playback = session.GetPlaybackInfo();
         var controls = playback.Controls;
         if (uri is "com.spotify.set_shuffle" or "com.spotify.superbird.set_shuffle" or "com.spotify.toggle_shuffle")
         {
-            bool target = ShuffleTarget(uri, arguments, playback.IsShuffleActive);
+            bool target = MediaCommands.ShuffleTarget(uri, arguments, playback.IsShuffleActive);
             return controls.IsShuffleEnabled && await session.TryChangeShuffleActiveAsync(target);
         }
-        return NormalizePlaybackCommand(uri) switch
+        return MediaCommands.NormalizePlaybackCommand(uri) switch
         {
             "com.spotify.superbird.resume" => controls.IsPlayEnabled && await session.TryPlayAsync(),
             "com.spotify.superbird.pause" => controls.IsPauseEnabled && await session.TryPauseAsync(),
@@ -161,20 +135,5 @@ internal sealed class WindowsMedia
                 ["saved"] = false, ["uid"] = "fake", ["uri"] = "spotify:track:fake"
             }
         };
-    }
-}
-
-internal sealed class MediaImageCache
-{
-    private readonly OrderedDictionary<string, JsonObject> images = new();
-
-    public JsonObject? Get(string id) =>
-        images.TryGetValue(id, out var image) ? image.DeepClone().AsObject() : null;
-
-    public void Store(string id, JsonObject image)
-    {
-        images[id] = image;
-        // Preserve insertion order when removed slots are reused by later tracks.
-        while (images.Count > 8) images.RemoveAt(0);
     }
 }

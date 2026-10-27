@@ -68,13 +68,13 @@
 
 ```powershell
 Set-Location D:\git\Spotify
-.\Start-CarThing.ps1
+.\dist\carthing-connector\carthing-connector.exe --bridge 30E3D604D71F
 ```
 
 - 기본 대상: 현재 페어링된 Car Thing `30E3D604D71F`
 - 기본 실행 시간: Ctrl+C 종료까지 유지
 - 이미 브리지 실행 중인 경우 동일 서비스를 사용하는 추가 실행 방지 필요
-- 다른 기기 지정: `Start-CarThing.ps1 -DeviceAddress AA:BB:CC:DD:EE:FF`
+- 다른 기기 지정: `carthing-connector.exe --bridge AA:BB:CC:DD:EE:FF`
 - Windows 미디어 API에 정보를 게시하는 앱의 현재 세션 선택
 
 | 옵션 | 용도 |
@@ -87,9 +87,8 @@ Set-Location D:\git\Spotify
 | `--check-radio` | 3초간 서비스 광고 확인 |
 | `--self-test` | 프로토콜 회귀 시험 |
 
-- 실행 파일: [CarThingProbe.exe](../dist/CarThingProbe/CarThingProbe.exe)
-- 실행 스크립트: [Start-CarThing.ps1](../Start-CarThing.ps1)
-- 소스: [Program.cs](../windows-probe/Program.cs), [MediaBridge.cs](../windows-probe/MediaBridge.cs), [WindowsMedia.cs](../windows-probe/WindowsMedia.cs)
+- 실행 파일: [carthing-connector.exe](../dist/carthing-connector/carthing-connector.exe)
+- 소스: [Program.cs](../windows-probe/Program.cs), [MediaBridge.cs](../carthing-core/MediaBridge.cs), [WindowsMedia.cs](../windows-probe/WindowsMedia.cs)
 - 캡처 저장 위치: 작업 폴더의 `analysis/captures/<UTC 시각>/`
 - `.rx.bin`·`.tx.bin`: 길이 헤더를 포함한 수신·송신 프레임
 - `.jsonl`: UTC 시각·방향·메시지 JSON을 기록한 줄 단위 로그

@@ -3,7 +3,7 @@
 - 문서 버전: 0.2, 2026-10-20
 - 목적: Android·Windows 등에서 순정 Car Thing에 현재 미디어 정보와 커버 이미지를 전달하는 구현 기준
 - 성격: APK 분석과 실기 패킷으로 정리한 호환 구현 사양, 제조사 공식 사양과 구분
-- 기준 구현: Git `eea6e60`의 표시 구현 및 이후 제어 작업본, [연결부](../windows-probe/Program.cs), [프로토콜](../windows-probe/MediaBridge.cs), [미디어·이미지](../windows-probe/WindowsMedia.cs), [볼륨](../windows-probe/WindowsVolume.cs)
+- 기준 구현: Git `eea6e60`의 표시 구현 및 이후 제어 작업본, [연결부](../windows-probe/Program.cs), [프로토콜](../carthing-core/MediaBridge.cs), [미디어·이미지](../windows-probe/WindowsMedia.cs), [볼륨](../windows-probe/WindowsVolume.cs)
 
 ## 1. 근거와 적용 조건
 
