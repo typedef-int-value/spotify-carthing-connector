@@ -113,3 +113,12 @@ Enable **Start after reboot** while disconnected, after granting media access an
 The setting changes future Connect/boot sessions; it does not replace a running manual connection. Disconnect first to change it. Pairing remains an Android system action; the app never pairs arbitrary nearby devices or enables Bluetooth itself.
 
 Selection-policy tests cover no match, prefix filtering, case-insensitive matching, saved-address preference, multiple candidates, and stale saved addresses. Logs: `analysis/android-autostart-tests.log`, `analysis/android-autostart-build.log`.
+
+## Volume step synchronization
+
+- Captured Samsung Bluetooth output: five `volume_down` requests changed the internal fine index from 54 to 39 in increments of 3; reported public volume changed from 6 to 4 on a 0–15 range. All five requests reached the Android audio service.
+- Relative commands now set an explicit public volume index, matching the `maximum + 1` levels advertised to Car Thing. Vendor-specific `AdjustStreamVolume` increments are no longer used.
+- Pending targets accumulate consecutive commands. Older readback values are withheld until the target is observed or a 500 ms settling window expires; actual system state wins after expiry.
+- Regression coverage: consecutive input with stale readback, direction reversal, confirmation, timeout, external changes, bounds, and range changes.
+- Device validation (2026-10-27): updated APK installed on Samsung SM-F946N; user confirmed the volume issue was resolved with the Car Thing dial. Android Debug build completed with zero warnings and errors; automated regression tests passed.
+- Evidence: `analysis/android-volume/capture-before.jsonl`, `audio-before.txt`, `tests.log`, and `build.log` in the same directory.

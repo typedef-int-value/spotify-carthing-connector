@@ -4,6 +4,7 @@ using CarThing.Core;
 using MessagePack;
 
 AutoConnectionPolicyTests.Run();
+VolumeControllerTests.Run();
 await MediaBridge.SelfTestAsync();
 foreach (bool spotify in new[] { false, true })
 {

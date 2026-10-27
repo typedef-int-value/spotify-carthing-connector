@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../android-connector/VolumeController.cs" Link="VolumeController.cs" />
     <Compile Include="../../android-connector/AutoConnectionPolicy.cs" Link="AutoConnectionPolicy.cs" />
     <ProjectReference Include="../../carthing-core/CarThing.Core.csproj" />
   </ItemGroup>

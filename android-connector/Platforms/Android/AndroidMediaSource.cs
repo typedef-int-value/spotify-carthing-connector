@@ -18,6 +18,13 @@ internal sealed class AndroidMediaSource(Context context) : IMediaSource, IDispo
     private string imageId = "";
     private string imageKey = "";
     private DateTime nextImageRead;
+    private VolumeController? volume;
+
+    private VolumeController Volume => volume ??= new VolumeController(
+        () => audio.GetStreamVolume(AudioStream.Music),
+        () => audio.GetStreamMaxVolume(AudioStream.Music),
+        value => audio.SetStreamVolume(AudioStream.Music, value, (VolumeNotificationFlags)0),
+        Android.OS.SystemClock.ElapsedRealtime);
 
     private MediaController? SelectSession()
     {
@@ -118,10 +125,12 @@ internal sealed class AndroidMediaSource(Context context) : IMediaSource, IDispo
 
     public Task<JsonObject?> ReadVolumeAsync()
     {
-        int maximum = audio.GetStreamMaxVolume(AudioStream.Music);
+        var state = Volume.Read();
+        if (state == null) return Task.FromResult<JsonObject?>(null);
+        var (value, maximum) = state.Value;
         return Task.FromResult<JsonObject?>(new JsonObject
         {
-            ["volume"] = maximum == 0 ? 0 : (double)audio.GetStreamVolume(AudioStream.Music) / maximum,
+            ["volume"] = maximum == 0 ? 0 : (double)value / maximum,
             ["volume_steps"] = maximum + 1
         });
     }
@@ -132,10 +141,8 @@ internal sealed class AndroidMediaSource(Context context) : IMediaSource, IDispo
         {
             if (audio.IsVolumeFixed) return Task.FromResult(false);
             if (uri.EndsWith(".set_volume", StringComparison.Ordinal))
-                audio.SetStreamVolume(AudioStream.Music,
-                    (int)Math.Round(MediaCommands.ParseVolume(arguments) * audio.GetStreamMaxVolume(AudioStream.Music)), (VolumeNotificationFlags)0);
-            else audio.AdjustStreamVolume(AudioStream.Music,
-                uri.EndsWith(".volume_up", StringComparison.Ordinal) ? Adjust.Raise : Adjust.Lower, (VolumeNotificationFlags)0);
+                Volume.SetNormalized(MediaCommands.ParseVolume(arguments));
+            else Volume.Change(uri.EndsWith(".volume_up", StringComparison.Ordinal) ? 1 : -1);
             return Task.FromResult(true);
         }
         if (uri == "com.spotify.set_playback_speed") uri = MediaCommands.PlaybackSpeedCommand(arguments);
