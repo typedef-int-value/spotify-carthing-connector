@@ -2,7 +2,9 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>carthing-connector</AssemblyName>
-    <Product>carthing-connector</Product>
+    <Product>Carthing Connector</Product>
+    <AssemblyTitle>Carthing Connector</AssemblyTitle>
+    <ApplicationIcon>Assets/carthing.ico</ApplicationIcon>
     <UseWindowsForms>true</UseWindowsForms>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
@@ -12,6 +14,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Assets/carthing.ico" LogicalName="CarThing.AppIcon" />
     <ProjectReference Include="../carthing-core/CarThing.Core.csproj" />
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
   </ItemGroup>

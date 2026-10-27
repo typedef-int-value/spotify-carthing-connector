@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using CarThing.Core;
 using MessagePack;
 
+AutoConnectionPolicyTests.Run();
 await MediaBridge.SelfTestAsync();
 foreach (bool spotify in new[] { false, true })
 {

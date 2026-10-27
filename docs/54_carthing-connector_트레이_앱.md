@@ -66,7 +66,7 @@
 ## 배포 파일 생성
 
 ```powershell
-dotnet publish windows-probe/CarThingProbe.csproj -c Release -r win-x64 --self-contained true -o dist/carthing-connector
+.\Publish-CarThing.ps1
 ```
 
 - 배포 폴더의 `carthing-connector.exe`만 다른 폴더·PC로 복사 후 실행
@@ -80,7 +80,7 @@ dotnet publish windows-probe/CarThingProbe.csproj -c Release -r win-x64 --self-c
 - 트레이의 `화면 모드 → 외부 미디어 / Spotify` 선택 및 현재 모드 체크 표시
 - 모드 변경 시 기존 연결 종료 후 재연결, 종료 시간 초과 시 모드 변경 중단
 - `settings.json`의 `SpotifyMode`에 선택값 저장, 다음 실행에서 복원
-- 기존 장치 주소만 있는 설정은 외부 미디어 모드로 해석
+- Default display mode: Spotify for new installations and settings without a saved mode; explicitly saved External media selections remain unchanged.
 - 두 모드 모두 Windows 미디어 세션의 곡 정보·커버·제어 사용
 - 기존 `--spotify-ui-experiment` 인자는 해당 실행의 Spotify 모드 지정용으로 유지
 | 자동 시험 | 결과 |
@@ -91,3 +91,26 @@ dotnet publish windows-probe/CarThingProbe.csproj -c Release -r win-x64 --self-c
 | 프로토콜·이미지·재생·볼륨·셔플 회귀 시험 | 종료 코드 0 |
 
 - 빌드·시험 로그: `analysis/tray-modes-publish.log`, `analysis/tray-modes-tray-test.log`, `analysis/tray-modes-test.log`
+
+## English UI and device icon
+
+- English tray actions: Select device, Restart connection, Display mode, Open logs folder, Exit.
+- English display modes: External media and Spotify.
+- English connection status, tooltip, and device selection dialog.
+- Original device silhouette with a turquoise display, large dial, and lower button.
+- Embedded icon shared by the tray and device dialog; matching Windows executable icon.
+- ICO sizes: 16, 20, 24, 32, 40, 48, 64, 128, and 256 pixels.
+- Icon source: `scripts/New-AppIcon.ps1`; generated asset: `windows-probe/Assets/carthing.ico`.
+- No separate icon file required when distributing the published EXE.
+
+| Validation | Result |
+|---|---|
+| Release build | 0 warnings, 0 errors |
+| Tray mode and settings regression | Passed |
+| Busy-state exit and stalled-connection shutdown | Passed |
+| Icon preview | Device silhouette and transparent background verified |
+
+Build and test logs: `analysis/tray-english-icon-build.log`, `analysis/tray-english-icon-test.log`.
+
+
+Display name: **Carthing Connector**. Executable names, package IDs, and existing settings paths remain unchanged.

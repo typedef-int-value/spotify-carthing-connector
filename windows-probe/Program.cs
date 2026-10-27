@@ -45,7 +45,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            if (args.Length == 0) MessageBox.Show(ex.Message, "carthing-connector", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (args.Length == 0) MessageBox.Show(ex.Message, "Carthing Connector", MessageBoxButtons.OK, MessageBoxIcon.Error);
             else Console.Error.WriteLine(ex);
             return 1;
         }
@@ -152,7 +152,7 @@ internal static class Program
                 }
                 Console.WriteLine($"Target: {target?.Name ?? "radio check only"} ({address:X12}); duration {(seconds == 0 ? "until Ctrl+C" : $"{seconds}s")}; output {output}");
                 Console.WriteLine(checkRadio ? "Testing local service advertisement only." : "Select/reconnect this PC from Car Thing. Ctrl+C stops capture.");
-                status?.Invoke("연결 대기 · " + (target?.Name ?? "Bluetooth"));
+                status?.Invoke("Waiting for connection · " + (target?.Name ?? "Bluetooth"));
                 try { await Task.Delay(Timeout.Infinite, stop.Token); }
                 catch (OperationCanceledException) { }
             }
@@ -172,7 +172,7 @@ internal static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine($"{ex.GetType().Name}: {ex.Message} (0x{ex.HResult:X8})");
-            status?.Invoke("오류 · " + ex.Message);
+            status?.Invoke("Error · " + ex.Message);
             return 1;
         }
     }
@@ -191,7 +191,7 @@ internal static class Program
                     return;
                 }
                 using var cancelRegistration = cancellation.Register(socket.Dispose);
-                status?.Invoke("Bluetooth 연결됨 · " + peer.Name);
+                status?.Invoke("Bluetooth connected · " + peer.Name);
                 var stem = Path.Combine(output, $"{transport}-{Guid.NewGuid():N}");
                 if (bridge)
                 {
@@ -227,7 +227,7 @@ internal static class Program
             }
             finally
             {
-                if (!cancellation.IsCancellationRequested) status?.Invoke("연결 대기 · 재연결 가능");
+                if (!cancellation.IsCancellationRequested) status?.Invoke("Waiting for reconnection");
             }
         }
     }

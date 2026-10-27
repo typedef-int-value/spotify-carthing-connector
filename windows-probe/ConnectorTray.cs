@@ -9,16 +9,17 @@ internal sealed class ConnectorTray : ApplicationContext
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "carthing-connector");
     private readonly Control dispatcher = new();
     private readonly NotifyIcon icon;
+    private readonly Icon trayIcon;
     private readonly ContextMenuStrip menu = new();
-    private readonly ToolStripMenuItem statusItem = new("시작 중") { Enabled = false };
-    private readonly ToolStripMenuItem deviceItem = new("장치 선택…");
-    private readonly ToolStripMenuItem restartItem = new("연결 다시 시작");
-    private readonly ToolStripMenuItem modeItem = new("화면 모드");
-    private readonly ToolStripMenuItem externalModeItem = new("외부 미디어");
+    private readonly ToolStripMenuItem statusItem = new("Starting") { Enabled = false };
+    private readonly ToolStripMenuItem deviceItem = new("Select device…");
+    private readonly ToolStripMenuItem restartItem = new("Restart connection");
+    private readonly ToolStripMenuItem modeItem = new("Display mode");
+    private readonly ToolStripMenuItem externalModeItem = new("External media");
     private readonly ToolStripMenuItem spotifyModeItem = new("Spotify");
     private readonly bool? requestedSpotifyMode;
     private readonly string settingsPath;
-    private readonly ToolStripMenuItem exitItem = new("종료");
+    private readonly ToolStripMenuItem exitItem = new("Exit");
     private readonly TextWriter originalOutput = Console.Out;
     private readonly TextWriter originalError = Console.Error;
     private readonly StreamWriter log;
@@ -42,14 +43,17 @@ internal sealed class ConnectorTray : ApplicationContext
         Console.SetOut(writer);
         Console.SetError(writer);
         _ = dispatcher.Handle;
+        using (var resource = typeof(ConnectorTray).Assembly.GetManifestResourceStream("CarThing.AppIcon")
+            ?? throw new InvalidOperationException("App icon resource is missing."))
+            trayIcon = new Icon(resource, SystemInformation.SmallIconSize);
         icon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
-            Text = "carthing-connector · 시작 중",
+            Icon = trayIcon,
+            Text = "Carthing Connector · Starting",
             ContextMenuStrip = menu,
             Visible = true
         };
-        menu.Items.Add(new ToolStripMenuItem("carthing-connector") { Enabled = false });
+        menu.Items.Add(new ToolStripMenuItem("Carthing Connector") { Enabled = false });
         menu.Items.Add(statusItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(deviceItem);
@@ -57,7 +61,7 @@ internal sealed class ConnectorTray : ApplicationContext
         modeItem.DropDownItems.AddRange([externalModeItem, spotifyModeItem]);
         menu.Items.Add(modeItem);
         UpdateModeMenu();
-        menu.Items.Add("로그 폴더 열기", null, (_, _) =>
+        menu.Items.Add("Open logs folder", null, (_, _) =>
         {
             try { Process.Start(new ProcessStartInfo(Path.Combine(DataDirectory, "logs")) { UseShellExecute = true }); }
             catch (Exception ex) { ShowError(ex); }
@@ -78,12 +82,13 @@ internal sealed class ConnectorTray : ApplicationContext
         if (initialized) return;
         initialized = true;
         Application.Idle -= Initialize;
+        Program.SpotifyUiExperiment = true;
         try
         {
             if (File.Exists(settingsPath))
             {
                 var saved = JsonSerializer.Deserialize<Settings>(File.ReadAllText(settingsPath));
-                Program.SpotifyUiExperiment = saved?.SpotifyMode ?? false;
+                Program.SpotifyUiExperiment = saved?.SpotifyMode ?? true;
                 if (saved != null && saved.DeviceAddress?.Length == 12 &&
                     ulong.TryParse(saved.DeviceAddress, System.Globalization.NumberStyles.HexNumber, null, out _))
                     address = saved.DeviceAddress;
@@ -106,7 +111,7 @@ internal sealed class ConnectorTray : ApplicationContext
             return;
         }
         statusItem.Text = text;
-        string tooltip = "carthing-connector · " + text;
+        string tooltip = "Carthing Connector · " + text;
         icon.Text = tooltip[..Math.Min(tooltip.Length, 63)];
         Console.WriteLine($"{DateTimeOffset.Now:O} Status: {text}");
     }
@@ -143,16 +148,16 @@ internal sealed class ConnectorTray : ApplicationContext
             Console.WriteLine($"Paired devices: {choices.Count}");
             using var dialog = new Form
             {
-                Text = "carthing-connector · 장치 선택", ClientSize = new Size(470, 150),
+                Icon = trayIcon, Text = "Carthing Connector · Select device", ClientSize = new Size(470, 150),
                 StartPosition = FormStartPosition.CenterScreen, FormBorderStyle = FormBorderStyle.FixedDialog,
                 MaximizeBox = false, MinimizeBox = false, TopMost = true
             };
-            dialog.Controls.Add(new Label { Text = "Windows에서 페어링한 Car Thing을 선택하세요.", AutoSize = true, Location = new Point(16, 18) });
+            dialog.Controls.Add(new Label { Text = "Select a Car Thing paired in Windows.", AutoSize = true, Location = new Point(16, 18) });
             var devicesBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(16, 49), Width = 438 };
             foreach (var choice in choices) devicesBox.Items.Add(choice);
             if (choices.Count > 0) devicesBox.SelectedIndex = Math.Max(0, choices.FindIndex(d => d.Address == address));
-            var ok = new Button { Text = "연결 대기", DialogResult = DialogResult.OK, Location = new Point(252, 99), Width = 100, Enabled = choices.Count > 0 };
-            var cancel = new Button { Text = "취소", DialogResult = DialogResult.Cancel, Location = new Point(362, 99), Width = 90 };
+            var ok = new Button { Text = "Connect", DialogResult = DialogResult.OK, Location = new Point(252, 99), Width = 100, Enabled = choices.Count > 0 };
+            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(362, 99), Width = 90 };
             dialog.Controls.AddRange([devicesBox, ok, cancel]);
             dialog.AcceptButton = ok;
             dialog.CancelButton = cancel;
@@ -175,7 +180,7 @@ internal sealed class ConnectorTray : ApplicationContext
                 await StopBridgeAsync();
                 if (!closing) StartBridge();
             }
-            else if (bridge == null) SetStatus("장치 선택 필요");
+            else if (bridge == null) SetStatus("Select a device");
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception ex) { if (!closing) ShowError(ex); }
@@ -202,7 +207,7 @@ internal sealed class ConnectorTray : ApplicationContext
         stop = new CancellationTokenSource();
         CancellationToken token = stop.Token;
         string target = address!;
-        SetStatus("연결 준비 중");
+        SetStatus("Preparing connection");
         bridge = Task.Run(() => Program.RunAsync(["--bridge", target], token,
             Path.Combine(DataDirectory, "logs", "captures"), SetStatus));
     }
@@ -243,8 +248,8 @@ internal sealed class ConnectorTray : ApplicationContext
     private void ShowError(Exception ex)
     {
         Console.Error.WriteLine(ex);
-        SetStatus("오류 · " + ex.Message);
-        icon.ShowBalloonTip(5000, "carthing-connector", ex.Message, ToolTipIcon.Error);
+        SetStatus("Error · " + ex.Message);
+        icon.ShowBalloonTip(5000, "Carthing Connector", ex.Message, ToolTipIcon.Error);
     }
 
     protected override void Dispose(bool disposing)
@@ -255,6 +260,7 @@ internal sealed class ConnectorTray : ApplicationContext
             lifetime.Dispose();
             icon.Visible = false;
             icon.Dispose();
+            trayIcon.Dispose();
             menu.Dispose();
             dispatcher.Dispose();
             Console.SetOut(originalOutput);
@@ -289,13 +295,13 @@ internal sealed class ConnectorTray : ApplicationContext
             Program.SpotifyUiExperiment = spotifyMode;
             UpdateModeMenu();
             if (address != null) StartBridge();
-            else SetStatus("장치 선택 필요");
+            else SetStatus("Select a device");
         }
         catch (Exception ex) { if (!closing) ShowError(ex); }
         finally { if (!closing) SetBusy(false); }
     }
 
-    private sealed record Settings(string? DeviceAddress, bool SpotifyMode = false);
+    private sealed record Settings(string? DeviceAddress, bool SpotifyMode = true);
 
     internal static void ShutdownSelfTest()
     {
@@ -304,7 +310,9 @@ internal sealed class ConnectorTray : ApplicationContext
         try
         {
             var legacy = JsonSerializer.Deserialize<Settings>("{\"DeviceAddress\":\"30E3D604D71F\"}");
-            if (legacy == null || legacy.SpotifyMode) throw new Exception("Legacy settings mode changed.");
+            if (legacy == null || !legacy.SpotifyMode) throw new Exception("Legacy settings must default to Spotify.");
+            var external = JsonSerializer.Deserialize<Settings>("{\"DeviceAddress\":null,\"SpotifyMode\":false}");
+            if (external == null || external.SpotifyMode) throw new Exception("Saved external mode was overridden.");
             Program.SpotifyUiExperiment = false;
             using var tray = new ConnectorTray(initialize: false, settingsPath: temporarySettings);
             foreach (bool mode in new[] { true, false })

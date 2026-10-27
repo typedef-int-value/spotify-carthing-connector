@@ -1,8 +1,10 @@
-# carthing-connector
+# Carthing Connector
 
-Use a stock Spotify Car Thing as a display and controller for Windows media playback.
+Connect a stock Spotify Car Thing directly to your Windows PC or Android phone over Bluetooth, and use it to display and control media playback.
 
-**carthing-connector** is a Windows tray app that sends track information and album artwork to Car Thing over Bluetooth and routes playback controls back to the PC. It uses Windows media sessions, so the integration is designed for compatible media apps rather than a Spotify account API.
+**No additional board or hardware modification is required.** Carthing Connector works with the device's original Spotify firmware and playback UI. Keep Car Thing powered and pair it with your PC or phone—no Raspberry Pi, replacement board, or firmware flashing is needed.
+
+The Windows tray app and Android companion app send track information and album artwork to Car Thing and route playback controls back to the source device. They use operating-system media sessions, rather than a Spotify account API, so compatible media apps can also provide the playback source.
 
 ![Stock Car Thing displaying the track playing in Spotify on a Windows PC](docs/images/pc-carthing-stock-mode.jpg)
 
@@ -13,8 +15,8 @@ Use a stock Spotify Car Thing as a display and controller for Windows media play
 - Track title, artist, album artwork, and playback-state updates.
 - Play/pause, previous track, and next track controls.
 - PC output volume control using the Car Thing dial.
-- Shuffle control and state synchronization when supported by the active media app.
-- Two display modes: **External media** and **Spotify**.
+- Windows shuffle control and state synchronization when supported by the active media app.
+- Two display modes: **External media** and **Spotify**. Spotify is the default when no mode is saved; explicit selections are preserved.
 - Tray-based device selection, connection restart, and log access.
 - Saved device and display-mode settings.
 - A self-contained Windows x64 executable; no separate .NET installation or PowerShell launcher needed.
@@ -28,9 +30,18 @@ Playback, artwork updates, volume, and bidirectional shuffle have been verified 
 | External media | The device's external-media card, including the playback app name |
 | Spotify | The device's native Spotify playback view, with artwork and playback controls |
 
-Both modes use the active **Windows media session** as their source. Choosing Spotify mode changes the device UI; it does not connect the bridge to a Spotify account or turn local track identifiers into Spotify catalog IDs.
+Both modes use the active **media session on the PC or phone** as their source. Choosing Spotify mode changes the device UI; it does not connect the bridge to a Spotify account or turn local track identifiers into Spotify catalog IDs.
 
 Select a mode from the tray menu. The app closes the current connection, starts listening again, and remembers the choice for the next launch.
+
+## Preview downloads
+
+The prepared distribution contains two files:
+
+- `carthing-connector.exe`: self-contained Windows x64 tray app.
+- `carthing-connector-android-preview.apk`: Android 8.0+ development preview, signed with the current development key.
+
+Local output: `dist/release/`. The APK is debuggable and intended for testing; it is not a production-signed store release. Keep binary downloads in GitHub Releases rather than tracking them in Git.
 
 ## Getting started
 
@@ -43,18 +54,13 @@ You need a Windows x64 PC with Bluetooth Classic support and a stock Car Thing w
 5. Start playback in a compatible Windows media app. If Car Thing remains on its connection screen, select the PC on the device.
 6. Right-click the tray icon to select a display mode, restart the connection, open logs, or exit.
 
-The current tray UI uses Korean labels:
-
-| Tray label | Meaning |
-|---|---|
-| 장치 선택… | Select device |
-| 화면 모드 → 외부 미디어 | Display mode → External media |
-| 화면 모드 → Spotify | Display mode → Spotify |
-| 연결 다시 시작 | Restart connection |
-| 로그 폴더 열기 | Open logs folder |
-| 종료 | Exit |
+The tray menu provides **Select device**, **Display mode**, **Restart connection**, **Open logs folder**, and **Exit**.
 
 Only one connector instance runs per Windows session. Exit the running app before replacing its executable.
+
+## Android app
+
+An initial Android app is available under `android-connector/`. It uses a silent foreground-service notification while waiting for or maintaining a Car Thing connection. See [Android installation, supported controls, and build verification](docs/60_Android_Connector.md).
 
 ## Build and test
 
@@ -66,13 +72,17 @@ Build the Windows app:
 dotnet build windows-probe/CarThingProbe.csproj -c Release
 ```
 
-Create a self-contained, single-file Windows x64 distribution:
+Exit the running tray app, then create a tested, single-file Windows x64 distribution:
 
 ```powershell
-dotnet publish windows-probe/CarThingProbe.csproj -c Release -r win-x64 --self-contained true -o dist/carthing-connector
+.\Publish-CarThing.ps1
 ```
 
-Copy `carthing-connector.exe` from that directory to the destination PC. The runtime and dependencies are bundled; native components may be extracted automatically at launch.
+The script runs the core tests, publishes into a separate staging directory, and replaces `dist/carthing-connector/carthing-connector.exe` only after those steps succeed. It stops if the tray app is running. A failed test or publish leaves the existing EXE unchanged.
+
+Copy that EXE to the destination PC. The runtime and dependencies are bundled; native components may be extracted automatically at launch. `dist/carthing-connector.build.json` records the source commit, working-tree status, build time, and EXE SHA256; it is not needed to run the app. Detailed logs and a per-build record are kept under `analysis/publish/`.
+
+Run the script again after source changes to refresh the distribution. A normal Build updates `bin/` and `obj/`, not `dist/`. See the [publishing workflow](docs/58_Publishing.md).
 
 Run the platform-independent protocol and adapter tests:
 
@@ -99,8 +109,9 @@ Windows media sessions and output volume
 | `carthing-core/` | Platform-independent .NET 10 library: WAMP messages, MessagePack framing, display modes, command helpers, and image cache |
 | `windows-probe/` | Windows tray app, Bluetooth connection, media-session integration, artwork conversion, and output volume |
 | `tests/CarThing.Core.Tests/` | Protocol regression tests and stream/adapter integration tests |
+| `android-connector/` | Android MAUI setup screen, connected-device foreground service, and phone media adapter |
 
-The shared library accepts ordinary .NET streams and an `IMediaSource` implementation. An Android app can reuse this core by supplying its own Bluetooth transport, media-session adapter, and image conversion. An Android application is not included yet; MAUI is an optional UI framework rather than a dependency of the core.
+The shared library accepts ordinary .NET streams and an `IMediaSource` implementation. The Android app reuses this core with its own RFCOMM transport, media-session adapter, and image conversion. MAUI belongs to the Android UI project, not the core. See the [Android setup and development APK](docs/60_Android_Connector.md).
 
 ## Current scope
 
@@ -138,3 +149,6 @@ The detailed documents are currently in Korean:
 - [Repository layout](docs/51_저장소_구성.md)
 
 This is an independent project and is not affiliated with or endorsed by Spotify.
+
+
+Display name: **Carthing Connector**. Executable names, package IDs, and existing settings paths remain unchanged.
