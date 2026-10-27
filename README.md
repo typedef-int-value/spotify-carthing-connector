@@ -14,12 +14,12 @@ The Windows tray app and Android companion app send track information and album 
 
 - Track title, artist, album artwork, and playback-state updates.
 - Play/pause, previous track, and next track controls.
-- PC output volume control using the Car Thing dial.
+- Windows and Android media volume control using the Car Thing dial.
 - Windows shuffle control and state synchronization when supported by the active media app.
 - Two display modes: **External media** and **Spotify**. Spotify is the default when no mode is saved; explicit selections are preserved.
 - Tray-based device selection, connection restart, and log access.
 - Saved device and display-mode settings.
-- A self-contained Windows x64 executable; no separate .NET installation or PowerShell launcher needed.
+- A single Windows x64 executable using the separately installed .NET 10 Desktop Runtime; no PowerShell launcher needed.
 
 Playback, artwork updates, volume, and bidirectional shuffle have been verified with the Spotify Windows app. Other apps must expose a Windows media session, and their available controls may differ.
 
@@ -38,18 +38,18 @@ Select a mode from the tray menu. The app closes the current connection, starts 
 
 The prepared distribution contains two files:
 
-- `carthing-connector.exe`: self-contained Windows x64 tray app.
-- `carthing-connector-android-preview.apk`: Android 8.0+ development preview, signed with the current development key.
+- `carthing-connector.exe`: Windows x64 tray app; requires .NET 10 Desktop Runtime (x64).
+- `carthing-connector-android-preview.apk`: Android 8.0+ ARM64 Release preview, signed with the existing development key for in-place updates.
 
-Local output: `dist/release/`. The APK is debuggable and intended for testing; it is not a production-signed store release. Keep binary downloads in GitHub Releases rather than tracking them in Git.
+Local output: `dist/release/`. The APK is a non-debuggable Release build intended for testing, not a production-signed store release. Keep binary downloads in GitHub Releases rather than tracking them in Git.
 
 ## Getting started
 
 You need a Windows x64 PC with Bluetooth Classic support and a stock Car Thing with its companion UI available.
 
 1. Power on Car Thing and pair it with the PC in Windows Bluetooth settings.
-2. Build the executable using the command below.
-3. Run `dist/carthing-connector/carthing-connector.exe`.
+2. Install **.NET 10 Desktop Runtime (Windows x64)** from the [official .NET download page](https://dotnet.microsoft.com/en-us/download/dotnet/10.0). Choose **Desktop Runtime**, not the plain .NET Runtime or ASP.NET Core Runtime. End users do not need the SDK.
+3. Download and run `carthing-connector.exe`, or build it using the commands below. If prompted to install .NET, install the Desktop Runtime and run the EXE again.
 4. Select the paired Car Thing when prompted. The app remembers this device.
 5. Start playback in a compatible Windows media app. If Car Thing remains on its connection screen, select the PC on the device.
 6. Right-click the tray icon to select a display mode, restart the connection, open logs, or exit.
@@ -61,6 +61,14 @@ Only one connector instance runs per Windows session. Exit the running app befor
 ## Android app
 
 An initial Android app is available under `android-connector/`. It uses a silent foreground-service notification while waiting for or maintaining a Car Thing connection. See [Android installation, supported controls, and build verification](docs/60_Android_Connector.md).
+
+Pair Car Thing in Android Bluetooth settings, grant media access, and select **Connect**. The app displays connection status and offers Spotify or External media display modes. Enable **Start after reboot** to automatically select a paired Car Thing and wait for a connection after startup.
+
+| Connection and settings | Ongoing connection notification |
+|---|---|
+| <img src="docs/images/android-carthing-connector%20(1).png" alt="Carthing Connector connected to Car Thing, with media access, startup, and display-mode settings" width="300"> | <img src="docs/images/android-carthing-connector%20(2).png" alt="Android notification shade showing Carthing Connector connected to Car Thing" width="300"> |
+
+The ongoing notification shows the connection status while the app screen is closed. Track information, artwork, playback controls, and volume have been verified on a physical device, including operation with the phone screen off.
 
 ## Build and test
 
@@ -80,7 +88,7 @@ Exit the running tray app, then create a tested, single-file Windows x64 distrib
 
 The script runs the core tests, publishes into a separate staging directory, and replaces `dist/carthing-connector/carthing-connector.exe` only after those steps succeed. It stops if the tray app is running. A failed test or publish leaves the existing EXE unchanged.
 
-Copy that EXE to the destination PC. The runtime and dependencies are bundled; native components may be extracted automatically at launch. `dist/carthing-connector.build.json` records the source commit, working-tree status, build time, and EXE SHA256; it is not needed to run the app. Detailed logs and a per-build record are kept under `analysis/publish/`.
+Copy that EXE to the destination PC and install .NET 10 Desktop Runtime (x64). Application dependencies are bundled; the .NET runtime is installed separately. Native components may be extracted automatically at launch. `dist/carthing-connector.build.json` records the source commit, working-tree status, build time, and EXE SHA256; it is not needed to run the app. Detailed logs and a per-build record are kept under `analysis/publish/`.
 
 Run the script again after source changes to refresh the distribution. A normal Build updates `bin/` and `obj/`, not `dist/`. See the [publishing workflow](docs/58_Publishing.md).
 

@@ -15,7 +15,7 @@
 | 설정 | `%LocalAppData%\carthing-connector\settings.json` |
 | 로그 | `%LocalAppData%\carthing-connector\logs\` |
 | 패킷 기록 | 로그 폴더의 `captures/<UTC 시각>/` |
-| 배포 | Windows x64, .NET·WinForms 런타임 및 의존 라이브러리를 포함한 단일 EXE |
+| 배포 | Single Windows x64 EXE; requires .NET 10 Desktop Runtime (x64). See [publishing](58_Publishing.md). |
 | 네이티브 의존성 | 실행 시 .NET이 사용자 임시 폴더에 자동 추출 가능 |
 
 ## 검증 결과

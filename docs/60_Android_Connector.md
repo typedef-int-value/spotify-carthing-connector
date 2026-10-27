@@ -122,3 +122,14 @@ Selection-policy tests cover no match, prefix filtering, case-insensitive matchi
 - Regression coverage: consecutive input with stale readback, direction reversal, confirmation, timeout, external changes, bounds, and range changes.
 - Device validation (2026-10-27): updated APK installed on Samsung SM-F946N; user confirmed the volume issue was resolved with the Car Thing dial. Android Debug build completed with zero warnings and errors; automated regression tests passed.
 - Evidence: `analysis/android-volume/capture-before.jsonl`, `audio-before.txt`, `tests.log`, and `build.log` in the same directory.
+
+## Spotify library access probe
+
+- Device test on 2026-10-27: Samsung SM-F946N, Spotify 9.1.92.3058, connector package `io.github.carthingconnector.android` (UID 10565).
+- Enabled service: `com.spotify.mediabrowserservice.mediabrowserservice.SpotifyMediaBrowserService`; the separate Media3 library service was disabled for user 0.
+- A temporary, debug-signed Android instrumentation APK targeted the installed connector and called the standard `MediaBrowser.connect()` API with its target context and null root hints.
+- Result: `onConnectionFailed`; Spotify logged `No root for client io.github.carthingconnector.android`. No library root or child lists were returned. This establishes refusal for the tested client/version/request, not the absence of Spotify's browsing implementation.
+- The preliminary `app_process` probe failed at service binding and was superseded by the instrumentation result.
+- The temporary instrumentation APK and device-side probe file were removed after the test. The connector APK was unchanged.
+- Local probe source and evidence: `analysis/media-browser-probe/BrowserProbe.java`, `AndroidManifest.xml`, `instrumentation-result.txt`, `service-result.txt`, and `spotify-package.txt`.
+- API reference: [MediaBrowserService.onGetRoot](https://developer.android.com/reference/android/service/media/MediaBrowserService#onGetRoot(java.lang.String,int,android.os.Bundle)).

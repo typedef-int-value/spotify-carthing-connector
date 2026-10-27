@@ -129,8 +129,7 @@ Set-Location D:\git\Spotify
 ## 빌드
 
 ```powershell
-dotnet publish windows-probe\CarThingProbe.csproj -c Release -r win-x64 `
-  --self-contained true -p:PublishSingleFile=true -o dist\carthing-connector
+.\Publish-CarThing.ps1
 ```
 
 - 환경: .NET SDK 10.0.401, Windows 10 build 19041 이상 대상, MessagePack 3.1.12

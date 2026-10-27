@@ -64,7 +64,7 @@ try {
     Write-Host 'Publishing the Windows x64 executable...'
     Invoke-DotNetStep (Join-Path $buildDirectory 'publish.log') @(
         'publish', 'windows-probe/CarThingProbe.csproj', '-c', 'Release', '-r', 'win-x64',
-        '--self-contained', 'true', '-o', $staging)
+        '--self-contained', 'false', '-o', $staging)
     $candidate = Join-Path $staging 'carthing-connector.exe'
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf) -or (Get-Item -LiteralPath $candidate).Length -eq 0) {
         throw 'Publish did not produce a nonempty carthing-connector.exe.'
@@ -80,6 +80,8 @@ try {
         source = $source
         configuration = 'Release'
         runtime = 'win-x64'
+        selfContained = $false
+        requiredRuntime = 'Microsoft.WindowsDesktop.App 10.0 (x64)'
         executable = [IO.Path]::GetRelativePath($root, $destination)
         sha256 = $hash
         bytes = (Get-Item -LiteralPath $candidate).Length
