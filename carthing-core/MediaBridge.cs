@@ -17,6 +17,8 @@ public sealed partial class MediaBridge
     private string? lastMedia;
     private string? lastVolume;
     private string? lastQueue;
+    private JsonObject? currentHomeItem;
+    private const string LocalContextUri = "spotify:playlist:0000000000000000000001";
     private readonly bool spotifyUiExperiment;
     private JsonArray experimentPresets = new();
     private static JsonObject Empty() => new();
@@ -124,7 +126,7 @@ public sealed partial class MediaBridge
                     if (compact == "query{shelf(limit:14overrides:[]){...onShelf{items{titleidtotalchildren{urititlesubtitleimage_id:imageId}}}...onShelfError{message}}}")
                         await send(Array(50, message[1], Empty(), new JsonObject
                         {
-                            ["data"] = new JsonObject { ["shelf"] = new JsonObject { ["items"] = new JsonArray() } }
+                            ["data"] = new JsonObject { ["shelf"] = new JsonObject { ["items"] = HomeItems() } }
                         }));
                     else if (System.Text.RegularExpressions.Regex.IsMatch(compact,
                         "^query\\{presets\\(serial:\"[A-Za-z0-9]+\"\\)\\{\\.\\.\\.onPresets\\{presets\\{context_uri:contextUrinameslot_index:slotIndexdescriptionimage_url:imageUrl\\}\\}\\.\\.\\.onPresetsError\\{message\\}\\}\\}$"))
@@ -145,6 +147,14 @@ public sealed partial class MediaBridge
                     }
                     else await send(Array(8, 48, message[1], Empty(), "wamp.error.invalid_argument"));
                     break;
+                }
+                // Only the currently advertised local card may resume the active
+                // media session. Never claim to play arbitrary Spotify catalog URIs.
+                if (spotifyUiExperiment && uri is "com.spotify.play_uri" or "com.spotify.superbird.play_uri" or "com.spotify.play_item")
+                {
+                    string? requested = message.Count > 5 ? message[5]?["uri"]?.GetValue<string>() : null;
+                    if (currentHomeItem != null && requested == currentHomeItem["uri"]?.GetValue<string>())
+                        uri = "com.spotify.superbird.resume";
                 }
                 if (MediaCommands.IsPlaybackCommand(uri) || MediaCommands.IsVolumeCommand(uri))
                 {
@@ -174,6 +184,7 @@ public sealed partial class MediaBridge
                 }
                 JsonObject? result = uri switch
                 {
+                    "com.spotify.superbird.get_home" when spotifyUiExperiment => new JsonObject { ["items"] = HomeItems() },
                     "com.spotify.get_image" or "com.spotify.get_thumbnail_image" => getImage(message.Count > 5 ? message[5]?["id"]?.GetValue<string>() ?? "" : ""),
                     "com.spotify.superbird.permissions" => new JsonObject { ["can_use_superbird"] = true },
                     // Diagnostic requests are persisted in the local RX log before acknowledgment.
@@ -221,12 +232,22 @@ public sealed partial class MediaBridge
         experimentPresets = next;
     }
 
+    private JsonArray HomeItems() => currentHomeItem == null ? new JsonArray() : new JsonArray(new JsonObject
+    {
+        ["title"] = "Now Playing", ["id"] = "carthing-now-playing", ["total"] = 1,
+        ["uri"] = "spotify:space_item:superbird:superbird-featured",
+        ["children"] = new JsonArray(currentHomeItem.DeepClone())
+    });
+
     public async Task PublishAsync(JsonObject state)
     {
         if (phase != 2) return;
         if (spotifyUiExperiment)
         {
             state = state.DeepClone().AsObject();
+            // The stock header hides context_title for unknown URI types.
+            // A local playlist context lets it display the source app's name.
+            state["context_uri"] = LocalContextUri;
             // APK cpn.F (Spotify) uses null; cpn.E (external media) supplies ActiveApp.
             state["currently_active_application"] = null;
             if (state["track"] is JsonObject track)
@@ -236,6 +257,14 @@ public sealed partial class MediaBridge
                 track["uid"] = key;
                 track["uri"] = "spotify:track:" + key[..22]; // Synthetic local identity, not a Spotify catalog ID.
             }
+            currentHomeItem = state["track"] is JsonObject homeTrack &&
+                !string.IsNullOrWhiteSpace(homeTrack["name"]?.GetValue<string>())
+                ? new JsonObject
+                {
+                    ["uri"] = homeTrack["uri"]?.DeepClone(), ["title"] = homeTrack["name"]?.DeepClone(),
+                    ["subtitle"] = homeTrack["artist"]?["name"]?.DeepClone() ?? JsonValue.Create(""),
+                    ["image_id"] = homeTrack["image_id"]?.DeepClone() ?? JsonValue.Create("")
+                } : null;
             JsonObject? current = state["track"] is JsonObject item ? new JsonObject
             {
                 ["uid"] = item["uid"]?.DeepClone(), ["uri"] = item["uri"]?.DeepClone(),

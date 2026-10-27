@@ -76,7 +76,7 @@ public sealed partial class MediaBridge
                 payload = " query{shelf(limit:14 overrides:[]){...on Shelf{items{title id total children{uri title subtitle image_id:imageId}}}...on ShelfError{message}}}"
             }));
             if (sent[^1][0]?.GetValue<int>() != (enabled ? 50 : 8) ||
-                (enabled && sent[^1][3]?["data"]?["shelf"]?["items"] is not JsonArray { Count: 0 }))
+                (enabled && sent[^1][3]?["data"]?["shelf"]?["items"] is not JsonArray { Count: 1 }))
                 throw new Exception("Home query response regression.");
             await peer.HandleAsync(Array(48, 3, Empty(), "com.spotify.superbird.graphql", new JsonArray(), new { payload = "mutation{unknown}" }));
             if (sent[^1][0]?.GetValue<int>() != 8) throw new Exception("Unknown GraphQL request accepted.");

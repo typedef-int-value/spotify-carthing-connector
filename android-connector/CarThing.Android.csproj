@@ -14,6 +14,9 @@
     <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
     <AndroidPackageFormats>apk</AndroidPackageFormats>
+    <!-- Avoid missing MauiApplication JNI entry points in Release builds.
+         https://github.com/dotnet/maui/issues/35209 -->
+    <AndroidEnableMarshalMethods>false</AndroidEnableMarshalMethods>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../carthing-core/CarThing.Core.csproj" />

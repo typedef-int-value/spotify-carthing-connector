@@ -123,6 +123,22 @@ Selection-policy tests cover no match, prefix filtering, case-insensitive matchi
 - Device validation (2026-10-27): updated APK installed on Samsung SM-F946N; user confirmed the volume issue was resolved with the Car Thing dial. Android Debug build completed with zero warnings and errors; automated regression tests passed.
 - Evidence: `analysis/android-volume/capture-before.jsonl`, `audio-before.txt`, `tests.log`, and `build.log` in the same directory.
 
+## Local Now Playing home card
+
+The connector's local Home view now supplies one current-track card independently of Spotify library access. A recognized synthetic playlist context URI allows the stock player header to display the media app name. Home card selection accepts only the currently advertised track URI and maps it to resume; stale or unrelated URIs remain unsupported. Automated coverage: `tests/CarThing.Core.Tests/HomeCardTests.cs`; results: `analysis/home-card-tests.log`.
+
+Device logs later showed repeated `com.spotify.superbird.get_home` calls rather than the GraphQL shelf request. Both routes now return the same current-track card; the legacy route includes the category URI required by the stock UI. Regression reproduced the unsupported legacy call before the fix and passed afterward. Evidence: `analysis/home-card-device.log`, `analysis/home-legacy-test-before.log`, and `analysis/home-legacy-test-after.log`. The user confirmed the player header ultimately displays Spotify after briefly showing its package identifier.
+
+Device validation on 2026-10-27 with the Android Release build and stock Car Thing:
+
+| Action | Observed result |
+|---|---|
+| Open the native player | App label changes from the initial package identifier to Spotify |
+| Press Home | Now Playing section displays the current track |
+| Select the current-track card | Returns to the playback screen |
+
+Windows and Android share the home-card protocol implementation. Windows Release compilation and the common protocol regression tests passed; device observations above are from Android. The Android Release startup correction and app-label changes are described in [publishing](58_Publishing.md) and the [README](../README.md).
+
 ## Spotify library access probe
 
 - Device test on 2026-10-27: Samsung SM-F946N, Spotify 9.1.92.3058, connector package `io.github.carthingconnector.android` (UID 10565).

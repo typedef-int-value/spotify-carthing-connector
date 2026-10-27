@@ -113,7 +113,7 @@ internal sealed class WindowsMedia : IMediaSource
         return new JsonObject
         {
             ["currently_active_application"] = new JsonObject { ["id"] = app, ["name"] = appName },
-            ["context_uri"] = "spotify:context:fake", ["context_title"] = album,
+            ["context_uri"] = "spotify:context:fake", ["context_title"] = appName,
             ["is_paused"] = !playing, ["is_paused_bool"] = !playing,
             ["playback_options"] = new JsonObject { ["repeat"] = 0, ["shuffle"] = playback?.IsShuffleActive ?? false },
             ["playback_position"] = position, ["playback_speed"] = playing ? playback?.PlaybackRate ?? 1 : 0,

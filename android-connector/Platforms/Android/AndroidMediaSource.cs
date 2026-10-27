@@ -78,7 +78,7 @@ internal sealed class AndroidMediaSource(Context context) : IMediaSource, IDispo
         return Task.FromResult(new JsonObject
         {
             ["currently_active_application"] = new JsonObject { ["id"] = package, ["name"] = name },
-            ["context_uri"] = "spotify:context:fake", ["context_title"] = album,
+            ["context_uri"] = "spotify:context:fake", ["context_title"] = name,
             ["is_paused"] = !playing, ["is_paused_bool"] = !playing,
             ["playback_options"] = new JsonObject { ["repeat"] = 0, ["shuffle"] = false },
             ["playback_position"] = position, ["playback_speed"] = playing ? playback?.PlaybackSpeed ?? 1 : 0,

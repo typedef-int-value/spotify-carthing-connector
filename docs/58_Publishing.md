@@ -77,6 +77,10 @@ Copy-Item analysis/android-release-staging/io.github.carthingconnector.android-S
 
 The default local Android development key must match the previous installation for an in-place update. Keep that key private and backed up; do not commit or distribute it. Trimming and AOT are disabled for this preview to preserve the current reflection-based protocol serialization. Android bundles its own runtime; users do not install .NET separately on their phone.
 
+`AndroidEnableMarshalMethods=false` is set in the Android project to avoid a Release startup crash resolving `MauiApplication.n_onCreate()`. When switching this setting on an existing build tree, clean the Android Release target before publishing to regenerate its Java wrappers. See [MAUI issue 35209](https://github.com/dotnet/maui/issues/35209).
+
+Device verification after this correction: the Release APK launched on Samsung SM-F946N, its process remained alive, and the UI reported `Connected to Car Thing (SN: Q61S)`. Evidence: `analysis/android-release-crash/process-after.log` and `window-after.xml`; the corrected APK replaced the distribution copy.
+
 Upload these two binaries as GitHub Release assets. Generated EXEs, APKs, and build records remain ignored by Git; commit the source and documentation instead.
 
 ## Release preview build verification (2026-10-27)
@@ -84,7 +88,7 @@ Upload these two binaries as GitHub Release assets. Generated EXEs, APKs, and bu
 | Artifact | Previous bytes | Current bytes | Configuration |
 |---|---:|---:|---|
 | Windows EXE | 142,472,888 | 26,576,414 | Release, win-x64, single file, external Desktop Runtime |
-| Android APK | 84,472,175 | 35,894,489 | Release, ARM64, non-debuggable, existing development signature |
+| Android APK | 84,472,175 | 35,837,145 | Release, ARM64, non-debuggable, existing development signature |
 
 - Core regression and adapter tests passed; published EXE tray self-tests passed using the installed Desktop Runtime.
 - Android APK v2/v3 signatures verified; signing certificate SHA256 matches the previous preview. Manifest confirms minimum API 26 and ARM64-only native code. JSON reflection remains enabled.

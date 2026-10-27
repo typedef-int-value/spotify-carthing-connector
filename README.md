@@ -32,6 +32,10 @@ Playback, artwork updates, volume, and bidirectional shuffle have been verified 
 
 Both modes use the active **media session on the PC or phone** as their source. Choosing Spotify mode changes the device UI; it does not connect the bridge to a Spotify account or turn local track identifiers into Spotify catalog IDs.
 
+In Spotify display mode, the label above the track title shows the active media app's name (for example, Spotify or YouTube Music). Album information remains part of the track metadata.
+
+The Home view exposes a **Now Playing** section with the current track's artwork, title, and artist. Selecting that card resumes the active media session. This is a local view of the current track, not a Spotify library or playlist download.
+
 Select a mode from the tray menu. The app closes the current connection, starts listening again, and remembers the choice for the next launch.
 
 ## Preview downloads
