@@ -23,6 +23,51 @@ The Windows tray app and Android companion app send track information and album 
 
 Playback, artwork updates, volume, and bidirectional shuffle have been verified with the Spotify Windows app. Other apps must expose a Windows media session, and their available controls may differ.
 
+## Windows and Android support
+
+Status reflects the current source. **Verified** means observed on a physical Car Thing; **Implemented** means present in code without equivalent device confirmation; **Partial** means only the described subset is available. **Not implemented** does not mean the operating system makes a feature impossible. Older downloaded binaries may differ.
+
+### Playback and Car Thing screens
+
+| Feature | Windows | Android | Limits and dependencies |
+|---|---|---|---|
+| Track title, artist, album metadata | Verified | Verified | The media app must publish a media session and metadata. Album metadata does not include an album's track list. |
+| Album artwork and track changes | Verified | Verified | Depends on app-provided artwork. Android currently reads metadata bitmaps; URI-only artwork is not fetched. |
+| Play / pause, previous / next | Verified | Verified | Commands depend on the selected player's capabilities. Dispatch does not guarantee playback; state is read back afterward. |
+| Dial volume up / down | Verified: default output device | Verified: music stream | These control system output/stream volume, not just Spotify. Android uses explicit public volume steps; fixed-volume outputs cannot be adjusted. |
+| Playback position and duration | Implemented | Implemented | Depends on timeline data; live streams may have no useful duration. Displaying progress does not enable seeking. |
+| Shuffle control and state | Verified with Spotify | Not implemented; disabled | Windows exposes shuffle state/control. Android's current framework adapter has no dedicated shuffle method; compat/Media3 or app custom actions require additional integration and player support. |
+| Seeking | Not implemented | Not implemented | Both platforms have seek APIs. Connector mapping and player capability checks remain to be implemented. |
+| Repeat mode | Not implemented | Not implemented | Windows has a repeat API. Android would require a compatible session/custom-action integration beyond the current adapter. |
+| Like / save to Spotify library | Not implemented | Not implemented | Windows media-session controls expose no Spotify save command. Android ratings/custom actions are not a universal Spotify library-save contract. |
+| Native Spotify playback screen | Verified | Verified | Uses the stock device UI with OS media data; does not sign in to a Spotify account. |
+| External media screen | Verified | Implemented | Same media source, different stock UI. Native-only Home/preset behavior does not automatically apply to this mode. |
+| Source app name above the track | Implemented | Verified | Native screen uses a local playlist context to show the app name. Android may briefly show a package ID before resolving the display name. |
+| Home: current-track card | Implemented; shared tests pass | Verified | One local **Now Playing** card, not a Spotify library. Both GraphQL and `get_home` requests are supported. |
+| Select the Home card | Implemented: resume current session | Return to playback screen verified | Only the currently advertised track is accepted. Physical confirmation covers navigation; the resume request is covered by automated tests. |
+| Full playback queue | Partial: current item only | Partial: current item only | Windows' selected media API has no full-queue reader. Android can expose a session queue if the player supplies it, but this adapter does not read it yet. |
+| Album / playlist library browsing | Not implemented | Not implemented; Spotify access refused in device probe | Windows media sessions are not a library API. Android MediaBrowser requires the provider's permission; Spotify 9.1.92.3058 returned no root to this connector. This is an app access restriction, not the absence of an Android browsing API. |
+| Top preset buttons 1–4 | Partial: protocol experiments | Partial: protocol experiments | Native mode exposes four session-local test presets. Save/select requests are handled or observed, but real playlist/app-action mappings and persistent presets are not implemented. |
+| Voice commands / microphone | Not implemented | Not implemented | The connector does not implement a voice-assistant backend. |
+| Audio streaming through the connector | Not provided | Not provided | The Bluetooth companion link carries metadata and controls. Audio remains on the PC/phone's selected output. |
+
+Windows API availability is documented in [GlobalSystemMediaTransportControlsSession](https://learn.microsoft.com/en-us/uwp/api/windows.media.control.globalsystemmediatransportcontrolssession). Android capabilities depend on the API layer and player: see [framework transport controls](https://developer.android.com/reference/android/media/session/MediaController.TransportControls), [session queues](https://developer.android.com/reference/android/media/session/MediaController#getQueue()), and [MediaBrowser access decisions](https://developer.android.com/reference/android/service/media/MediaBrowserService#onGetRoot(java.lang.String,int,android.os.Bundle)). The connector does not yet integrate Android compat/Media3 transport extensions.
+
+### Connection, background operation, and distribution
+
+| Feature | Windows | Android | Limits and dependencies |
+|---|---|---|---|
+| Stock device over Bluetooth Classic RFCOMM | Verified | Verified | Pair in OS settings first; no extra board or firmware replacement. |
+| Media source selection | OS current media session | Playing session, then previous active session, then first available | Automatic selection; no manual media-app picker. Android requires notification-listener access. |
+| Device / display-mode selection and saved settings | Tray menu | App setup screen | One selected Car Thing per connector session; saved selection does not create a Bluetooth pairing. |
+| Background operation | Tray app | Foreground service; screen-off operation verified | Android keeps an ongoing service notification. OS process termination, battery restrictions, and force-stop can interrupt it. Neither platform guarantees operation while suspended. |
+| Start after reboot | No built-in login startup option | Implemented; opt-in | Android starts after boot/unlock with required permissions. Reboot behavior has not yet been confirmed on the test device. |
+| Connection recovery | Tray **Restart connection** | Automatic retry in automatic mode; manual mode stops on disconnect | Android automatic mode prefers the saved paired Car Thing, otherwise a unique name match; ambiguous matches require selection. Recovery after process death is not guaranteed. |
+| Diagnostics | Tray shortcut to logs and packet captures | App-private captures | Captures contain media metadata. Android Release builds do not allow `adb run-as` access to private files. |
+| Distribution | Single x64 EXE; .NET 10 Desktop Runtime required | ARM64 APK, Android 8.0+; runtime bundled | Android preview uses the existing development signing key. Matching signatures are required for in-place updates. |
+
+Android uses a [connected-device foreground service](https://developer.android.com/develop/background-work/services/fgs), not an invisible permanent background process. See [Android setup and device evidence](docs/60_Android_Connector.md) and [publishing requirements](docs/58_Publishing.md).
+
 ## Display modes
 
 | Mode | Car Thing display |
@@ -128,7 +173,7 @@ The shared library accepts ordinary .NET streams and an `IMediaSource` implement
 ## Current scope
 
 - **Presets:** listing, save requests, and selection requests have been explored. Spotify mode currently uses session-local test presets; they are not mapped to real playlists or Windows actions.
-- **Home/browse:** incomplete. The Home button can lead to an empty or black screen.
+- **Home/browse:** Home shows the current track; full album and playlist browsing is not implemented. See the platform comparison above.
 - **Likes, seeking, and repeat:** not implemented.
 - **Authentication:** the bridge implements the paired companion exchange used by the device, not Spotify cloud login.
 
