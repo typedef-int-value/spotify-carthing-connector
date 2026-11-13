@@ -9,8 +9,8 @@
     <Nullable>enable</Nullable>
     <ApplicationTitle>Carthing Connector</ApplicationTitle>
     <ApplicationId>io.github.carthingconnector.android</ApplicationId>
-    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
-    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0.1</ApplicationDisplayVersion>
+    <ApplicationVersion>2</ApplicationVersion>
     <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
     <AndroidPackageFormats>apk</AndroidPackageFormats>
@@ -21,6 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="../carthing-core/CarThing.Core.csproj" />
     <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
+    <!-- Matches the AndroidX Core/Collection versions used by MAUI 10.0.20. -->
+    <PackageReference Include="Xamarin.AndroidX.Media" Version="1.7.0.12" />
     <MauiIcon Include="Resources/AppIcon/appicon.svg" Color="#19242E" />
     <MauiSplashScreen Include="Resources/AppIcon/appicon.svg" Color="#19242E" BaseSize="128,128" />
   </ItemGroup>

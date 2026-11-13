@@ -18,6 +18,10 @@ public sealed partial class MediaBridge
     private string? lastVolume;
     private string? lastQueue;
     private JsonObject? currentHomeItem;
+    private JsonObject? currentPlayerState;
+    private bool canRate;
+    private JsonNode? podcastSpeed;
+    private string? lastPodcastSpeed;
     private const string LocalContextUri = "spotify:playlist:0000000000000000000001";
     private readonly bool spotifyUiExperiment;
     private JsonArray experimentPresets = new();
@@ -94,6 +98,7 @@ public sealed partial class MediaBridge
                 lastMedia = null;
                 lastVolume = null;
                 lastQueue = null;
+                lastPodcastSpeed = null;
                 break;
             case 34 when phase == 2:
                 subscriptions.Remove(message[2]!.GetValue<int>());
@@ -184,6 +189,11 @@ public sealed partial class MediaBridge
                 }
                 JsonObject? result = uri switch
                 {
+                    "com.spotify.get_saved" when canRate && currentPlayerState?["track"] is JsonObject savedTrack &&
+                        message.Count > 5 && message[5]?["id"]?.GetValue<string>() == savedTrack["uri"]?.GetValue<string>()
+                        => new JsonObject { ["saved"] = savedTrack["saved"]?.DeepClone() ?? JsonValue.Create(false) },
+                    "com.spotify.get_podcast_playback_speed" when podcastSpeed != null =>
+                        new JsonObject { ["podcast_playback_speed"] = podcastSpeed.DeepClone() },
                     "com.spotify.superbird.get_home" when spotifyUiExperiment => new JsonObject { ["items"] = HomeItems() },
                     "com.spotify.get_image" or "com.spotify.get_thumbnail_image" => getImage(message.Count > 5 ? message[5]?["id"]?.GetValue<string>() ?? "" : ""),
                     "com.spotify.superbird.permissions" => new JsonObject { ["can_use_superbird"] = true },
@@ -242,9 +252,21 @@ public sealed partial class MediaBridge
     public async Task PublishAsync(JsonObject state)
     {
         if (phase != 2) return;
+        state = state.DeepClone().AsObject();
+        var suppliedQueue = state["_queue"] as JsonObject;
+        state.Remove("_queue");
+        canRate = state["_can_rate"]?.GetValue<bool>() == true;
+        state.Remove("_can_rate");
+        podcastSpeed = state["_podcast_speed"]?.DeepClone();
+        state.Remove("_podcast_speed");
+        string? serializedSpeed = podcastSpeed?.ToJsonString();
+        if (podcastSpeed != null && serializedSpeed != lastPodcastSpeed)
+            foreach (var pair in subscriptions.Where(p => p.Value == "com.spotify.podcast_playback_speed"))
+                await send(Array(36, pair.Key, ++publication, Empty(), new JsonArray(),
+                    new JsonObject { ["podcast_playback_speed"] = podcastSpeed.DeepClone() }));
+        lastPodcastSpeed = serializedSpeed;
         if (spotifyUiExperiment)
         {
-            state = state.DeepClone().AsObject();
             // The stock header hides context_title for unknown URI types.
             // A local playlist context lets it display the source app's name.
             state["context_uri"] = LocalContextUri;
@@ -252,10 +274,10 @@ public sealed partial class MediaBridge
             state["currently_active_application"] = null;
             if (state["track"] is JsonObject track)
             {
-                string identity = $"{track["name"]}\n{track["artist"]?["name"]}\n{track["album"]?["name"]}";
-                string key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
-                track["uid"] = key;
-                track["uri"] = "spotify:track:" + key[..22]; // Synthetic local identity, not a Spotify catalog ID.
+                string localUri = MediaCommands.LocalTrackUri(track["name"]?.GetValue<string>() ?? "",
+                    track["artist"]?["name"]?.GetValue<string>() ?? "", track["album"]?["name"]?.GetValue<string>() ?? "");
+                track["uid"] = localUri;
+                track["uri"] = localUri; // Synthetic local identity, not a Spotify catalog ID.
             }
             currentHomeItem = state["track"] is JsonObject homeTrack &&
                 !string.IsNullOrWhiteSpace(homeTrack["name"]?.GetValue<string>())
@@ -272,7 +294,11 @@ public sealed partial class MediaBridge
                 ["artist_name"] = item["artist"]?["name"]?.DeepClone(),
                 ["artists"] = item["artists"]?.DeepClone() ?? new JsonArray(), ["provider"] = "context"
             } : null;
-            var queue = new JsonObject { ["previous"] = new JsonArray(), ["current"] = current, ["next"] = new JsonArray() };
+            var queue = suppliedQueue ?? new JsonObject { ["previous"] = new JsonArray(), ["current"] = current, ["next"] = new JsonArray() };
+            // The stock now-playing artwork reads queue.current.image_uri, not track.image_id.
+            // Queue descriptions can omit artwork even when current metadata supplies it.
+            if (queue["current"] is JsonObject queueCurrent && current != null)
+                queueCurrent["image_uri"] = current["image_uri"]?.DeepClone();
             string serializedQueue = queue.ToJsonString();
             if (serializedQueue != lastQueue)
             {
@@ -281,6 +307,7 @@ public sealed partial class MediaBridge
                 lastQueue = serializedQueue;
             }
         }
+        currentPlayerState = state;
         string serialized = state.ToJsonString();
         if (serialized == lastMedia) return;
         foreach (var pair in subscriptions.Where(p => p.Value == "com.spotify.superbird.player_state"))

@@ -43,6 +43,7 @@ public sealed class MainPage : ContentPage
                 Children =
                 {
                     new Label { Text = "Carthing Connector", FontSize = 28, FontAttributes = FontAttributes.Bold, TextColor = Colors.White },
+                    new Label { Text = $"Version {AppInfo.Current.VersionString}", TextColor = Colors.LightGray },
                     status,
                     new Label { Text = "Pair your Car Thing in Android Bluetooth settings, then allow media access to share the playing app's track and controls.", TextColor = Colors.LightGray },
                     access, bluetooth, mediaAccess, refresh, devices,

@@ -36,22 +36,23 @@ Status reflects the current source. **Verified** means observed on a physical Ca
 | Play / pause, previous / next | Verified | Verified | Commands depend on the selected player's capabilities. Dispatch does not guarantee playback; state is read back afterward. |
 | Dial volume up / down | Verified: default output device | Verified: music stream | These control system output/stream volume, not just Spotify. Android uses explicit public volume steps; fixed-volume outputs cannot be adjusted. |
 | Playback position and duration | Implemented | Implemented | Depends on timeline data; live streams may have no useful duration. Displaying progress does not enable seeking. |
-| Shuffle control and state | Verified with Spotify | Not implemented; disabled | Windows exposes shuffle state/control. Android's current framework adapter has no dedicated shuffle method; compat/Media3 or app custom actions require additional integration and player support. |
-| Seeking | Not implemented | Not implemented | Both platforms have seek APIs. Connector mapping and player capability checks remain to be implemented. |
-| Repeat mode | Not implemented | Not implemented | Windows has a repeat API. Android would require a compatible session/custom-action integration beyond the current adapter. |
-| Like / save to Spotify library | Not implemented | Not implemented | Windows media-session controls expose no Spotify save command. Android ratings/custom actions are not a universal Spotify library-save contract. |
+| Shuffle control and state | Verified with Spotify | Shuffle operation verified | Android requires a ready compat session, a known shuffle mode, and the shuffle action. Player support determines availability. |
+| Seeking | Not implemented | Verified | Android enables seeking when the active session advertises seek support and a positive duration. Targets are clamped to the track bounds; position is read back from the session. |
+| Repeat mode | Not implemented | Implemented via MediaControllerCompat | Android maps off, one track, and all tracks when the player advertises repeat support and a known compatible mode. |
+| Like / save to Spotify library | Not implemented | Conditional heart-rating support | Android maps the current track's heart button only for sessions advertising heart ratings and the rating action. This is not a universal Spotify library-save contract. |
+| Playback speed | Not implemented | Conditional command and state support | Requires the player's speed action. The stock podcast screen is selected when metadata identifies a Spotify episode; other media stays in the normal screen. |
 | Native Spotify playback screen | Verified | Verified | Uses the stock device UI with OS media data; does not sign in to a Spotify account. |
 | External media screen | Verified | Implemented | Same media source, different stock UI. Native-only Home/preset behavior does not automatically apply to this mode. |
-| Source app name above the track | Implemented | Verified | Native screen uses a local playlist context to show the app name. Android may briefly show a package ID before resolving the display name. |
+| Source app name above the track | Implemented | Verified | Android uses the app name. A session queue title may be a generic playback label rather than a playlist name. The package ID may appear briefly before the display name resolves. |
 | Home: current-track card | Implemented; shared tests pass | Verified | One local **Now Playing** card, not a Spotify library. Both GraphQL and `get_home` requests are supported. |
 | Select the Home card | Implemented: resume current session | Return to playback screen verified | Only the currently advertised track is accepted. Physical confirmation covers navigation; the resume request is covered by automated tests. |
-| Full playback queue | Partial: current item only | Partial: current item only | Windows' selected media API has no full-queue reader. Android can expose a session queue if the player supplies it, but this adapter does not read it yet. |
+| Playback queue and selection | Partial: current item only | Implemented for app-provided queues | Android needs unique queue IDs and a known active item; otherwise it shows the current track only. Selection additionally requires the queue-skip action. Queue changes invalidate old selections. The current item uses the playing track's artwork; adjacent-item artwork is not fetched. |
 | Album / playlist library browsing | Not implemented | Not implemented; Spotify access refused in device probe | Windows media sessions are not a library API. Android MediaBrowser requires the provider's permission; Spotify 9.1.92.3058 returned no root to this connector. This is an app access restriction, not the absence of an Android browsing API. |
 | Top preset buttons 1–4 | Partial: protocol experiments | Partial: protocol experiments | Native mode exposes four session-local test presets. Save/select requests are handled or observed, but real playlist/app-action mappings and persistent presets are not implemented. |
 | Voice commands / microphone | Not implemented | Not implemented | The connector does not implement a voice-assistant backend. |
 | Audio streaming through the connector | Not provided | Not provided | The Bluetooth companion link carries metadata and controls. Audio remains on the PC/phone's selected output. |
 
-Windows API availability is documented in [GlobalSystemMediaTransportControlsSession](https://learn.microsoft.com/en-us/uwp/api/windows.media.control.globalsystemmediatransportcontrolssession). Android capabilities depend on the API layer and player: see [framework transport controls](https://developer.android.com/reference/android/media/session/MediaController.TransportControls), [session queues](https://developer.android.com/reference/android/media/session/MediaController#getQueue()), and [MediaBrowser access decisions](https://developer.android.com/reference/android/service/media/MediaBrowserService#onGetRoot(java.lang.String,int,android.os.Bundle)). The connector does not yet integrate Android compat/Media3 transport extensions.
+Windows API availability is documented in [GlobalSystemMediaTransportControlsSession](https://learn.microsoft.com/en-us/uwp/api/windows.media.control.globalsystemmediatransportcontrolssession). Android capabilities depend on the API layer and player: see [compat transport controls](https://developer.android.com/reference/android/support/v4/media/session/MediaControllerCompat.TransportControls), [session queues](https://developer.android.com/reference/android/media/session/MediaController#getQueue()), and [MediaBrowser access decisions](https://developer.android.com/reference/android/service/media/MediaBrowserService#onGetRoot(java.lang.String,int,android.os.Bundle)). Android 1.0.1 integrates MediaControllerCompat; it does not add Spotify account or library access.
 
 ### Connection, background operation, and distribution
 
@@ -67,6 +68,8 @@ Windows API availability is documented in [GlobalSystemMediaTransportControlsSes
 | Distribution | Single x64 EXE; .NET 10 Desktop Runtime required | ARM64 APK, Android 8.0+; runtime bundled | Android preview uses the existing development signing key. Matching signatures are required for in-place updates. |
 
 Android uses a [connected-device foreground service](https://developer.android.com/develop/background-work/services/fgs), not an invisible permanent background process. See [Android setup and device evidence](docs/60_Android_Connector.md) and [publishing requirements](docs/58_Publishing.md).
+
+Android 1.0.1 user testing with Spotify confirmed shuffle, seeking, restored artwork, and the app-name header. Repeat and heart controls did not appear to work, and the queue displayed only the current track. These observations do not establish whether the cause is player capability exposure or command handling.
 
 ## Display modes
 
@@ -174,7 +177,7 @@ The shared library accepts ordinary .NET streams and an `IMediaSource` implement
 
 - **Presets:** listing, save requests, and selection requests have been explored. Spotify mode currently uses session-local test presets; they are not mapped to real playlists or Windows actions.
 - **Home/browse:** Home shows the current track; full album and playlist browsing is not implemented. See the platform comparison above.
-- **Likes, seeking, and repeat:** not implemented.
+- **Optional media controls:** Android 1.0.1 maps seek, shuffle, repeat, heart ratings, queue selection, and playback speed when supported by the session. Windows seeking, repeat, and ratings are not mapped.
 - **Authentication:** the bridge implements the paired companion exchange used by the device, not Spotify cloud login.
 
 ## Settings and diagnostics

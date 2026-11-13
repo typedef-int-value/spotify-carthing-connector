@@ -39,12 +39,12 @@ On Android 13 and later, notification permission denial does not prevent startin
 | Function | Implementation |
 |---|---|
 | Session selection | Playing session first, then the previously selected active session, then the first active session |
-| Track and playback state | Android `MediaController` metadata and playback state |
+| Track and playback state | Android `MediaController` metadata and `MediaControllerCompat` playback state |
 | Artwork | Metadata bitmaps, JPEG conversion up to 248 pixels and 60,000 bytes, shared image cache |
 | Play/pause and previous/next | Transport controls gated by the selected session's advertised actions |
 | Volume | Android music-stream volume and available volume steps |
 | Display | Shared Spotify and External media protocol modes |
-| Shuffle | Disabled in this adapter |
+| Shuffle and repeat | Compat session readiness, mode state, and action checks |
 
 Transport calls are asynchronous. A successful RPC response means the command was dispatched, not that the player has confirmed the new state. State is read back from the media session. Album artwork depends on the player supplying a bitmap in its metadata.
 
@@ -149,3 +149,66 @@ Windows and Android share the home-card protocol implementation. Windows Release
 - The temporary instrumentation APK and device-side probe file were removed after the test. The connector APK was unchanged.
 - Local probe source and evidence: `analysis/media-browser-probe/BrowserProbe.java`, `AndroidManifest.xml`, `instrumentation-result.txt`, `service-result.txt`, and `spotify-package.txt`.
 - API reference: [MediaBrowserService.onGetRoot](https://developer.android.com/reference/android/service/media/MediaBrowserService#onGetRoot(java.lang.String,int,android.os.Bundle)).
+
+## Android 재생 위치 탐색
+
+- 미디어 세션이 `ACTION_SEEK_TO`를 지원하고 곡 길이가 0 ms보다 크면 `can_seek`를 활성화한다.
+- `com.spotify.superbird.seek_to`의 `position`과 `com.spotify.set_playback_position`의 `position_ms`를 처리한다.
+- 위치 단위는 ms이다. 요청 위치는 0부터 곡 길이까지 제한한다. 소수 ms는 버린다.
+- 위치 누락, 숫자가 아닌 값, 무한대는 `wamp.error.invalid_argument`로 응답한다.
+- 세션이 탐색을 지원하지 않거나 곡 길이가 없으면 명령을 실행하지 않고 `wamp.error.runtime_error`로 응답한다.
+- Android `TransportControls.SeekTo()`로 요청한다. 실제 재생 위치는 기존 미디어 세션 조회 경로에서 다시 읽는다.
+- 참고 UI 소스는 진행 바를 눌러 탐색 화면을 열고, 터치 또는 다이얼로 위치를 변경한다. 탐색 화면의 다이얼 이동 단위는 5,000 ms이다.
+
+| 검증 항목 | 결과 |
+|---|---|
+| 두 요청 경로, ms 위치 전달 | 자동 시험 통과 |
+| 음수, 곡 길이 초과, 소수 위치 처리 | 자동 시험 통과 |
+| 잘못된 인자, 미지원 플레이어 오류 응답 | 자동 시험 통과 |
+| Android ARM64 Release 증분 빌드 | 성공 |
+
+시험 코드: `tests/CarThing.Core.Tests/SeekTests.cs`. 로그: `analysis/seek-tests.log`, `analysis/seek-android-build.log`.
+
+## Android 1.0.1 미디어 호환 계층
+
+- 앱 표시 버전을 `1.0.1`, 내부 버전 코드를 `2`로 변경한다. 앱 첫 화면에도 표시 버전을 출력한다.
+- `MediaControllerCompat`를 선택된 Android 미디어 세션 토큰에 연결한다. 같은 세션에서는 호환 컨트롤러를 재사용한다.
+- `Xamarin.AndroidX.Media 1.7.0.12`를 사용한다. MAUI 10.0.20의 AndroidX Core 1.16.0.3, Collection 1.5.0.3과 의존성을 맞춘다.
+- 호환 계층의 준비 상태와 미디어 앱의 지원 플래그를 확인한다. 전송 후 상태는 미디어 세션에서 다시 읽는다.
+
+| 기능 | 처리 조건과 동작 |
+|---|---|
+| 셔플 | 호환 세션 준비, 유효한 셔플 상태, 셔플 설정 지원 시 전달 |
+| 반복 | 반복 설정 지원 시 끄기, 한 곡, 전체 반복 전달 |
+| 상단 문구 | 앱 이름 표시. 큐 제목은 일반 재생 안내 문구일 수 있어 사용하지 않음 |
+| 대기열 | 고유 항목 ID와 현재 항목 ID가 있으면 이전, 현재, 다음 항목으로 분리 |
+| 대기열 선택 | 상대 인덱스를 Android 항목 ID로 변환, 세션이나 대기열이 바뀌면 기존 선택 거부 |
+| 하트 평가 | 하트 평가와 평가 명령을 지원할 때 현재 곡에만 적용 |
+| 배속 | 배속 명령 지원 시 0.5~3.5배 전달, 실제 배속 읽기와 이벤트 전송 |
+| 팟캐스트 화면 | 메타데이터의 미디어 ID 또는 URI가 `spotify:episode:`일 때 선택 |
+
+- 대기열의 현재 항목을 식별할 수 없으면 기존 현재 곡 표시를 사용한다. 현재 항목에는 재생 메타데이터의 커버를 연결한다. 이전, 다음 항목 이미지는 빈값으로 보낸다.
+- 하트 평가는 미디어 앱의 평가 기능이다. Spotify 라이브러리 저장과 동일하다고 가정하지 않는다.
+- 자동 시험에서 요청 분기, 잘못된 인자, 상대 큐 인덱스, 큐 변경 후 선택 거부, 배속 상태와 내부 필드 분리를 확인했다.
+- 시험 코드: `tests/CarThing.Core.Tests/CompatMediaTests.cs`. 결과: `analysis/compat-tests.log`.
+
+## 호환 계층 적용 후 커버 표시 수정
+
+- 사용자 연동 시험에서 Android 셔플, Seek 동작을 확인했다.
+- 앱 제공 대기열의 현재 항목에 이미지 ID가 없어 순정 재생 화면의 커버가 사라졌다. 커버가 있는 재생 상태와 이미지가 없는 대기열을 함께 보내는 자동 시험에서 재현했다.
+- 순정 UI의 `Artwork.tsx`는 현재 대기열 항목의 `image_uri`를 사용한다. 공통 브리지에서 현재 재생 메타데이터의 커버 ID를 해당 필드에 연결했다.
+- 커버 없음, 지연 도착, 변경 시 대기열 커버가 함께 갱신되는지 확인했다. 이전, 다음 항목에는 현재 곡 커버를 복사하지 않는다.
+- 상단 문구를 큐 제목에서 앱 이름으로 복원했다. 사용자가 본 ‘재생 목록 재생하기’와 같은 일반 큐 문구를 플레이리스트 이름으로 취급하지 않는다.
+- 재현 로그: `analysis/compat-cover-before.log`. 수정 후 자동 시험: `analysis/compat-cover-after.log`. Android 빌드: `analysis/compat-cover-build.log`.
+
+## Android 1.0.1 사용자 연동 결과
+
+- Spotify 재생, 순정 Car Thing, 커버 수정 APK 기준 사용자 확인 결과이다.
+- 반복과 하트의 원인은 세션 지원 정보 또는 명령 처리 여부로 확정하지 않는다.
+
+| 기능 | 확인 결과 |
+|---|---|
+| 셔플, Seek | 정상 동작 |
+| 앨범 커버, 상단 앱 이름 | 수정 후 정상 표시 |
+| 반복, 하트 | 동작하지 않는 것으로 관찰 |
+| 재생 대기열 | 현재 곡만 표시 |

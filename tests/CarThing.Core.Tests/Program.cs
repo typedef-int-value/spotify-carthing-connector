@@ -6,6 +6,8 @@ using MessagePack;
 AutoConnectionPolicyTests.Run();
 VolumeControllerTests.Run();
 await HomeCardTests.RunAsync();
+await SeekTests.RunAsync();
+await CompatMediaTests.RunAsync();
 await MediaBridge.SelfTestAsync();
 foreach (bool spotify in new[] { false, true })
 {
